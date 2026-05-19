@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Minimal app permissions for the transcription MVP.","local":true,"windows":["main"],"permissions":["core:default"]}}

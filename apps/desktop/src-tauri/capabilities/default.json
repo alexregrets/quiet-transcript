@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal app permissions for the transcription MVP.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

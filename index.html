@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corbetta App Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Прототип Digital Twin City</span>
+        <h1>Corbetta App</h1>
+        <p>
+          Единая цифровая платформа для жителей и муниципалитета: услуги, обращения, AI-помощник,
+          прозрачные статусы, геймификация участия и аналитика города в одном интерфейсе.
+        </p>
+        <div class="hero-actions">
+          <button class="primary-action" data-mobile-screen="home">Открыть путь жителя</button>
+          <button class="secondary-action" data-desktop-panel="dashboard">Открыть панель администрации</button>
+        </div>
+      </div>
+      <div class="hero-stats">
+        <article class="metric-card">
+          <span class="metric-value">75%</span>
+          <span class="metric-label">обращений все еще происходят офлайн</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-value">23%</span>
+          <span class="metric-label">пожилых жителей рискуют остаться вне цифры</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-value">3 мин</span>
+          <span class="metric-label">цель на создание обращения</span>
+        </article>
+      </div>
+    </header>
+
+    <main class="experience-grid">
+      <section class="resident-experience">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">Сервис для жителя</span>
+            <h2>Мобильный прототип</h2>
+          </div>
+          <div class="chip-row">
+            <span class="chip">Light UI</span>
+            <span class="chip">Clickable</span>
+            <span class="chip">Demo-ready</span>
+          </div>
+        </div>
+
+        <div class="phone-frame">
+          <div class="phone-notch"></div>
+          <div class="phone-status">
+            <span>9:41</span>
+            <span>5G</span>
+          </div>
+
+          <div class="mobile-screen active" id="screen-home">
+            <section class="mobile-header">
+              <div>
+                <span class="small-label">С возвращением</span>
+                <h3>Доброе утро, Лаура</h3>
+              </div>
+              <button class="avatar-badge" data-toast="Профиль жителя открыт: здесь можно хранить документы, историю обращений и персональные уведомления.">Л</button>
+            </section>
+
+            <section class="spotlight-card">
+              <div class="spotlight-copy">
+                <span class="small-label">Город в одном приложении</span>
+                <h4>Услуги, обращения, новости и AI-помощь</h4>
+                <p>Интерфейс сделан простым для молодых, работающих и пожилых жителей, без перегрузки и бюрократического тона.</p>
+              </div>
+              <div class="spotlight-icon">1</div>
+            </section>
+
+            <section class="quick-grid">
+              <button class="quick-card accent-blue" data-mobile-screen="report">
+                <span class="quick-icon">!</span>
+                <strong>Сообщить о проблеме</strong>
+                <span>Дороги, свет, мусор, вода</span>
+              </button>
+              <button class="quick-card accent-mint" data-mobile-screen="status">
+                <span class="quick-icon">~</span>
+                <strong>Статус заявки</strong>
+                <span>Прозрачный путь до решения</span>
+              </button>
+              <button class="quick-card accent-sand" data-mobile-screen="assistant">
+                <span class="quick-icon">*</span>
+                <strong>AI-ассистент</strong>
+                <span>Ответы и навигация по сервисам</span>
+              </button>
+              <button class="quick-card accent-coral" data-mobile-screen="rewards">
+                <span class="quick-icon">+</span>
+                <strong>Награды</strong>
+                <span>Баллы за участие в жизни города</span>
+              </button>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="card-heading">
+                <h4>Городские обновления</h4>
+                <button class="ghost-link-button" data-toast="Лента новостей в полной версии покажет события, работы на дорогах, голосования и объявления муниципалитета.">Смотреть все</button>
+              </div>
+              <article class="news-item">
+                <div>
+                  <strong>Ремонт на Via Milano</strong>
+                  <p>Завтра с 09:00 начнутся дорожные работы. Объезды уже отмечены на карте города.</p>
+                </div>
+                <span class="news-tag">Важно</span>
+              </article>
+              <article class="news-item">
+                <div>
+                  <strong>Опрос по освещению</strong>
+                  <p>Оставьте мнение о модернизации фонарей и получите баллы за участие.</p>
+                </div>
+                <span class="news-tag muted">Опрос</span>
+              </article>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="card-heading">
+                <h4>Быстрые сервисы</h4>
+                <button class="ghost-link-button" data-mobile-screen="services">Открыть</button>
+              </div>
+              <div class="service-list">
+                <button class="service-tile" data-mobile-screen="services">Документы</button>
+                <button class="service-tile" data-mobile-screen="services">Оплаты</button>
+                <button class="service-tile" data-mobile-screen="services">Опросы</button>
+              </div>
+            </section>
+          </div>
+
+          <div class="mobile-screen" id="screen-services">
+            <section class="mobile-header">
+              <button class="icon-button" data-mobile-screen="home">&lt;</button>
+              <div>
+                <span class="small-label">Муниципальные сервисы</span>
+                <h3>Каталог услуг</h3>
+              </div>
+              <button class="avatar-badge" data-toast="В этой зоне можно хранить избранные услуги и цифровые документы жителя.">+</button>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="card-heading">
+                <h4>Популярное</h4>
+                <button class="ghost-link-button" data-toast="Подборка строится на основе жизненных сценариев: семья, транспорт, жилье, документы.">Почему это здесь</button>
+              </div>
+              <article class="service-row">
+                <div>
+                  <strong>Подача документов</strong>
+                  <p>Загрузка формы, сопровождение AI и цифровой профиль жителя.</p>
+                </div>
+                <button class="secondary-mini" data-toast="В полной версии здесь открывается пошаговая подача документов с автозаполнением.">Открыть</button>
+              </article>
+              <article class="service-row">
+                <div>
+                  <strong>Оплата городских услуг</strong>
+                  <p>Налоги, парковка, коммунальные и муниципальные сборы.</p>
+                </div>
+                <button class="secondary-mini" data-toast="Оплаты собраны в одном месте, чтобы сократить визиты в муниципалитет.">Открыть</button>
+              </article>
+              <article class="service-row">
+                <div>
+                  <strong>Опросы и голосования</strong>
+                  <p>Участие в развитии города и приоритизации проектов.</p>
+                </div>
+                <button class="secondary-mini" data-toast="Голосования связаны с программой баллов и городской повесткой.">Открыть</button>
+              </article>
+            </section>
+          </div>
+
+          <div class="mobile-screen" id="screen-report">
+            <section class="mobile-header">
+              <button class="icon-button" data-mobile-screen="home">&lt;</button>
+              <div>
+                <span class="small-label">Умная маршрутизация</span>
+                <h3>Сообщить о проблеме</h3>
+              </div>
+            </section>
+
+            <section class="content-card form-card">
+              <div class="upload-card">
+                <span class="upload-icon">[]</span>
+                <div>
+                  <strong>Добавить фото</strong>
+                  <p>Изображение ускоряет классификацию и снижает число уточняющих звонков.</p>
+                </div>
+              </div>
+
+              <label class="field">
+                <span>Категория</span>
+                <div class="input-shell">Уличное освещение</div>
+              </label>
+              <label class="field">
+                <span>Локация</span>
+                <div class="input-shell">Via Roma, 12</div>
+              </label>
+              <label class="field">
+                <span>Описание</span>
+                <div class="input-shell large">Сломан фонарь возле перехода. После заката участок плохо освещен, пешеходам небезопасно.</div>
+              </label>
+
+              <div class="tag-row">
+                <span class="tag">Геолокация включена</span>
+                <span class="tag">Приоритет: средний</span>
+              </div>
+
+              <button class="primary-wide" id="submit-report">Отправить обращение</button>
+            </section>
+          </div>
+
+          <div class="mobile-screen" id="screen-status">
+            <section class="mobile-header">
+              <button class="icon-button" data-mobile-screen="home">&lt;</button>
+              <div>
+                <span class="small-label">Обращение #CB-2048</span>
+                <h3>Статус заявки</h3>
+              </div>
+              <button class="avatar-badge alt" data-toast="Полный статус включает сроки, отдел, фото, карту и историю уведомлений.">i</button>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="status-hero">
+                <div>
+                  <strong id="status-title">Ремонт уличного фонаря</strong>
+                  <p id="status-department">Назначено в Public Works North Zone</p>
+                </div>
+                <span class="status-pill" id="status-pill">В работе</span>
+              </div>
+
+              <div class="mini-map">
+                <div class="pin pin-a"></div>
+                <div class="pin pin-b"></div>
+                <div class="route-line"></div>
+              </div>
+
+              <div class="timeline" id="status-timeline">
+                <div class="timeline-item done">
+                  <span class="dot"></span>
+                  <div>
+                    <strong>Обращение создано</strong>
+                    <p>Сегодня, 09:12</p>
+                  </div>
+                </div>
+                <div class="timeline-item done">
+                  <span class="dot"></span>
+                  <div>
+                    <strong>Автоклассификация и отправка в отдел</strong>
+                    <p>Сегодня, 09:14</p>
+                  </div>
+                </div>
+                <div class="timeline-item current">
+                  <span class="dot"></span>
+                  <div>
+                    <strong>Назначен техник</strong>
+                    <p>Ожидаемое устранение в течение 24 часов</p>
+                  </div>
+                </div>
+              </div>
+
+              <button class="secondary-wide" id="advance-status">Смоделировать следующий этап</button>
+            </section>
+          </div>
+
+          <div class="mobile-screen" id="screen-assistant">
+            <section class="mobile-header">
+              <div>
+                <span class="small-label">Цифровой помощник</span>
+                <h3>AI-ассистент Corbetta</h3>
+              </div>
+              <button class="avatar-badge alt" data-toast="AI-помощник особенно полезен для пожилых жителей и людей с низкой цифровой грамотностью.">AI</button>
+            </section>
+
+            <section class="chat-card" id="chat-card">
+              <div class="chat-message assistant">
+                Я помогу найти услугу, проверить статус обращения, объяснить документы или провести вас по шагам.
+              </div>
+              <div class="chat-message user">
+                Как продлить парковочное разрешение?
+              </div>
+              <div class="chat-message assistant">
+                Я нашел нужный сервис. На это уйдет около 3 минут, и я могу провести вас пошагово. Начнем?
+              </div>
+            </section>
+
+            <div class="suggestion-row">
+              <button class="suggestion-pill" data-assistant="Проверить мое обращение">Проверить обращение</button>
+              <button class="suggestion-pill" data-assistant="Найти сервис">Найти сервис</button>
+              <button class="suggestion-pill" data-assistant="Объяснить документы">Объяснить документы</button>
+            </div>
+
+            <div class="chat-input">
+              <input id="assistant-input" type="text" value="Хочу узнать, как получить документ онлайн" aria-label="Сообщение ассистенту">
+              <button class="send-button" id="assistant-send">&gt;</button>
+            </div>
+          </div>
+
+          <div class="mobile-screen" id="screen-rewards">
+            <section class="mobile-header">
+              <div>
+                <span class="small-label">Геймификация участия</span>
+                <h3>Награды</h3>
+              </div>
+              <div class="points-badge"><span id="points-value">1 280</span>&nbsp;баллов</div>
+            </section>
+
+            <section class="reward-banner">
+              <div>
+                <span class="small-label">Уровень жителя</span>
+                <h4 id="citizen-level">Чемпион района</h4>
+                <p>Баллы начисляются за обращения, опросы, участие в событиях и использование городских сервисов.</p>
+              </div>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="card-heading">
+                <h4>Как заработать</h4>
+                <button class="ghost-link-button" data-toast="Логика геймификации должна мотивировать не ради очков, а ради участия в жизни города.">Правила</button>
+              </div>
+              <article class="reward-row">
+                <strong>Подтвержденное обращение</strong>
+                <span>+120</span>
+              </article>
+              <article class="reward-row">
+                <strong>Участие в опросе</strong>
+                <span>+60</span>
+              </article>
+              <article class="reward-row">
+                <strong>Посещение городского события</strong>
+                <span>+90</span>
+              </article>
+            </section>
+
+            <section class="content-card stack-gap">
+              <div class="card-heading">
+                <h4>Обменять сейчас</h4>
+                <button class="ghost-link-button" data-toast="Партнерская программа может включать местный бизнес, музеи, события и городские бонусы.">Партнеры</button>
+              </div>
+              <article class="redeem-card">
+                <div>
+                  <strong>Билет в музей</strong>
+                  <p>800 баллов</p>
+                </div>
+                <button class="secondary-mini redeem-button" data-cost="800" data-reward="Билет в музей">Обменять</button>
+              </article>
+              <article class="redeem-card">
+                <div>
+                  <strong>Скидка на городское событие</strong>
+                  <p>500 баллов</p>
+                </div>
+                <button class="secondary-mini redeem-button" data-cost="500" data-reward="Скидка на городское событие">Обменять</button>
+              </article>
+            </section>
+          </div>
+
+          <nav class="bottom-nav">
+            <button class="nav-item active" data-mobile-screen="home">Главная</button>
+            <button class="nav-item" data-mobile-screen="report">Обращение</button>
+            <button class="nav-item" data-mobile-screen="status">Статус</button>
+            <button class="nav-item" data-mobile-screen="assistant">AI</button>
+            <button class="nav-item" data-mobile-screen="rewards">Награды</button>
+          </nav>
+        </div>
+      </section>
+
+      <section class="admin-experience">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">Пульт муниципалитета</span>
+            <h2>Desktop Admin Dashboard</h2>
+          </div>
+          <div class="desktop-tabs">
+            <button class="desktop-tab active" data-desktop-panel="dashboard">Обзор</button>
+            <button class="desktop-tab" data-desktop-panel="map">Карта</button>
+            <button class="desktop-tab" data-desktop-panel="departments">Отделы</button>
+            <button class="desktop-tab" data-desktop-panel="residents">Жители</button>
+          </div>
+        </div>
+
+        <div class="desktop-panel active" id="panel-dashboard">
+          <div class="admin-surface">
+            <aside class="admin-sidebar">
+              <div class="brand-lockup">
+                <div class="brand-mark">C1</div>
+                <div>
+                  <strong>Corbetta Control</strong>
+                  <p>Цифровой двойник города</p>
+                </div>
+              </div>
+              <nav class="sidebar-nav">
+                <button class="sidebar-link active" data-desktop-panel="dashboard">Обзор</button>
+                <button class="sidebar-link" data-desktop-panel="map">Живая карта</button>
+                <button class="sidebar-link" data-desktop-panel="departments">Отделы</button>
+                <button class="sidebar-link" data-desktop-panel="residents">Жители</button>
+              </nav>
+              <div class="sidebar-card">
+                <span class="small-label">Ожидаемый эффект</span>
+                <strong>Снижение офлайн-визитов на 30-40%</strong>
+                <p>Цифровые каналы, AI-помощь и прозрачные уведомления снижают трение в муниципальных процессах.</p>
+              </div>
+            </aside>
+
+            <div class="admin-main">
+              <div class="kpi-grid">
+                <article class="kpi-card">
+                  <span>Открытые обращения</span>
+                  <strong>248</strong>
+                  <p>на 12% ниже прошлой недели</p>
+                </article>
+                <article class="kpi-card">
+                  <span>Решено в SLA</span>
+                  <strong>91%</strong>
+                  <p>цель 90%</p>
+                </article>
+                <article class="kpi-card">
+                  <span>Решено через AI</span>
+                  <strong>58%</strong>
+                  <p>FAQ и сопровождение сервисов</p>
+                </article>
+                <article class="kpi-card">
+                  <span>Активные жители</span>
+                  <strong>2 540</strong>
+                  <p>цель 12 месяцев достигнута</p>
+                </article>
+              </div>
+
+              <div class="admin-grid">
+                <section class="map-card">
+                  <div class="card-heading">
+                    <h3>Тепловая карта обращений</h3>
+                    <button class="ghost-button" data-desktop-panel="map">Открыть карту</button>
+                  </div>
+                  <div class="city-map">
+                    <div class="district district-a"></div>
+                    <div class="district district-b"></div>
+                    <div class="district district-c"></div>
+                    <div class="marker marker-high" style="top: 30%; left: 42%;"></div>
+                    <div class="marker marker-medium" style="top: 55%; left: 60%;"></div>
+                    <div class="marker marker-low" style="top: 65%; left: 32%;"></div>
+                    <div class="marker marker-medium" style="top: 40%; left: 70%;"></div>
+                  </div>
+                </section>
+
+                <section class="analytics-column">
+                  <article class="chart-card">
+                    <div class="card-heading">
+                      <h3>Типы проблем</h3>
+                      <button class="ghost-link-button" data-toast="В полном продукте график можно связать с периодом, районом и ответственным отделом.">За месяц</button>
+                    </div>
+                    <div class="bar-group">
+                      <div class="bar-row">
+                        <span>Освещение</span>
+                        <div class="bar-track"><div class="bar-fill w-76"></div></div>
+                      </div>
+                      <div class="bar-row">
+                        <span>Дороги</span>
+                        <div class="bar-track"><div class="bar-fill w-58"></div></div>
+                      </div>
+                      <div class="bar-row">
+                        <span>Мусор</span>
+                        <div class="bar-track"><div class="bar-fill w-44"></div></div>
+                      </div>
+                      <div class="bar-row">
+                        <span>Вода</span>
+                        <div class="bar-track"><div class="bar-fill w-33"></div></div>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="chart-card">
+                    <div class="card-heading">
+                      <h3>Районы</h3>
+                      <button class="ghost-link-button" data-toast="Районы анализируются по SLA, типам обращений, нагрузке и динамике вовлеченности жителей.">Обновляется</button>
+                    </div>
+                    <div class="donut-shell">
+                      <div class="donut-chart"></div>
+                      <div class="donut-legend">
+                        <span><i class="legend-swatch blue"></i> Север 38%</span>
+                        <span><i class="legend-swatch mint"></i> Центр 34%</span>
+                        <span><i class="legend-swatch sand"></i> Юг 28%</span>
+                      </div>
+                    </div>
+                  </article>
+                </section>
+
+                <section class="feed-card">
+                  <div class="card-heading">
+                    <h3>Последние обращения</h3>
+                    <button class="ghost-link-button" data-toast="Обращения автоматически приоритизируются по риску, повторяемости и социальному контексту.">Автоприоритизация</button>
+                  </div>
+                  <article class="feed-row">
+                    <div>
+                      <strong>Сломанный фонарь на Via Roma 12</strong>
+                      <p>Назначено в Public Works, ETA 24ч</p>
+                    </div>
+                    <span class="feed-status urgent">Высокий</span>
+                  </article>
+                  <article class="feed-row">
+                    <div>
+                      <strong>Переполненный контейнер</strong>
+                      <p>Санитарная команда запланирована на 14:00</p>
+                    </div>
+                    <span class="feed-status">Средний</span>
+                  </article>
+                  <article class="feed-row">
+                    <div>
+                      <strong>Яма у школьного перехода</strong>
+                      <p>Объединено с 3 похожими обращениями</p>
+                    </div>
+                    <span class="feed-status low">Низкий</span>
+                  </article>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="desktop-panel" id="panel-map">
+          <div class="map-layout">
+            <section class="map-stage">
+              <div class="map-toolbar">
+                <div class="filter-group">
+                  <button class="filter-pill active" data-filter="all">Все</button>
+                  <button class="filter-pill" data-filter="lighting">Освещение</button>
+                  <button class="filter-pill" data-filter="roads">Дороги</button>
+                  <button class="filter-pill" data-filter="waste">Мусор</button>
+                </div>
+                <div class="map-metrics">
+                  <span id="sensor-count">Датчики: 182</span>
+                  <span id="urgent-count">Срочные кейсы: 12</span>
+                </div>
+              </div>
+
+              <div class="digital-map">
+                <div class="map-grid"></div>
+                <div class="map-ring ring-a"></div>
+                <div class="map-ring ring-b"></div>
+                <div class="map-node node-a filter-lighting"></div>
+                <div class="map-node node-b filter-roads"></div>
+                <div class="map-node node-c filter-waste"></div>
+                <div class="map-node node-d filter-lighting"></div>
+                <div class="flow-line flow-a"></div>
+                <div class="flow-line flow-b"></div>
+              </div>
+            </section>
+
+            <aside class="map-sidepanel">
+              <div class="card-heading">
+                <h3>Приоритетный кейс</h3>
+                <span class="status-pill urgent" id="map-priority">Срочно</span>
+              </div>
+              <div class="issue-preview"></div>
+              <div class="detail-stack">
+                <div>
+                  <span class="small-label">Обращение</span>
+                  <strong id="map-case-title">#CB-2048 Сбой уличного освещения</strong>
+                </div>
+                <div>
+                  <span class="small-label">AI-резюме</span>
+                  <p id="map-ai-summary">Кластер из 4 обращений рядом со школьным маршрутом. Рекомендована эскалация до вечернего пика.</p>
+                </div>
+                <div>
+                  <span class="small-label">Ответственный отдел</span>
+                  <p id="map-team">Public Works North Zone</p>
+                </div>
+                <div>
+                  <span class="small-label">Следующее действие</span>
+                  <p id="map-next-action">Выезд техника подтвержден на 16:30.</p>
+                </div>
+              </div>
+              <button class="primary-wide" data-desktop-panel="dashboard">Вернуться к обзору</button>
+            </aside>
+          </div>
+        </div>
+
+        <div class="desktop-panel" id="panel-departments">
+          <section class="deep-panel">
+            <div class="card-heading">
+              <h3>Нагрузка по департаментам</h3>
+              <button class="ghost-button" data-toast="Эта панель помогает перераспределять задачи между отделами и прогнозировать нагрузку.">Зачем это нужно</button>
+            </div>
+            <div class="deep-grid">
+              <article class="deep-card">
+                <span class="small-label">Public Works</span>
+                <strong>76 активных кейсов</strong>
+                <p>Пик по освещению и дорожным дефектам в северном районе.</p>
+                <button class="secondary-mini" data-toast="Отделу Public Works нужен дополнительный вечерний выезд и приоритизация школьных маршрутов.">Рекомендация</button>
+              </article>
+              <article class="deep-card">
+                <span class="small-label">Sanitation</span>
+                <strong>41 активный кейс</strong>
+                <p>Обращения по контейнерам растут после выходных и массовых мероприятий.</p>
+                <button class="secondary-mini" data-toast="Для Sanitation система предлагает динамический график вывоза по событиям города.">Рекомендация</button>
+              </article>
+              <article class="deep-card">
+                <span class="small-label">Citizen Services</span>
+                <strong>58% запросов закрывает AI</strong>
+                <p>Чаще всего жители спрашивают про документы, статусы и оплату услуг.</p>
+                <button class="secondary-mini" data-toast="Здесь можно запускать новые AI-сценарии и измерять долю самообслуживания жителей.">Рекомендация</button>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <div class="desktop-panel" id="panel-residents">
+          <section class="deep-panel">
+            <div class="card-heading">
+              <h3>Сегменты жителей</h3>
+              <button class="ghost-button" data-toast="Панель сегментов помогает адаптировать коммуникацию, UX и онбординг под разные группы.">Как использовать</button>
+            </div>
+            <div class="deep-grid">
+              <article class="deep-card">
+                <span class="small-label">Молодые жители</span>
+                <strong>Ожидание: скорость и мобильность</strong>
+                <p>Наиболее востребованы быстрые сервисы, цифровые документы и уведомления.</p>
+              </article>
+              <article class="deep-card">
+                <span class="small-label">Работающие жители</span>
+                <strong>Ожидание: онлайн без визита</strong>
+                <p>Критичны статус-трекинг, оплата услуг и подача документов без очередей.</p>
+              </article>
+              <article class="deep-card">
+                <span class="small-label">Пожилые жители</span>
+                <strong>Ожидание: простота и сопровождение</strong>
+                <p>Нужны понятные шаги, AI-помощь, крупные элементы интерфейса и ясные формулировки.</p>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
