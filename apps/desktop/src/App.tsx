@@ -6,13 +6,15 @@ import { MainView } from "./components/MainView";
 import { ProcessingView } from "./components/ProcessingView";
 import { ResultView } from "./components/ResultView";
 import { Sidebar } from "./components/Sidebar";
-import { ThemeToggle } from "./components/ThemeToggle";
+import { ThemeToggle, type AppTheme } from "./components/ThemeToggle";
 import { getEnvHealthCheck, transcribeFileOnDesktop, transcribeUrlOnDesktop } from "./lib/desktopBridge";
 import { copy, type Locale, stepKeys } from "./lib/i18n";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
 
 const HISTORY_STORAGE_KEY = "quiet-transcript-history";
+const THEME_STORAGE_KEY = "quiet-transcript-theme";
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
+const appThemes = new Set<AppTheme>(["light", "dark", "blue", "sepia"]);
 
 const loadLocalHistory = () => {
   try {
@@ -48,9 +50,13 @@ const createDemoRecord = (source: HistoryRecord["source"]): HistoryRecord => {
 
 export const App = () => {
   const [locale, setLocale] = useState<Locale>("ru");
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    return appThemes.has(storedTheme as AppTheme) ? (storedTheme as AppTheme) : "dark";
+  });
   const [email, setEmail] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [accountlessMode, setAccountlessMode] = useState(false);
   const [authMessage, setAuthMessage] = useState<string>();
   const [user, setUser] = useState<User | null>(null);
   const [url, setUrl] = useState("");
@@ -67,6 +73,7 @@ export const App = () => {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
@@ -234,6 +241,7 @@ export const App = () => {
 
   const signOut = async () => {
     await supabase?.auth.signOut();
+    setAccountlessMode(false);
     setUser(null);
   };
 
@@ -294,6 +302,33 @@ export const App = () => {
     URL.revokeObjectURL(href);
   };
 
+  if (!user && !accountlessMode) {
+    return (
+      <div className="min-h-screen bg-[#f0ede8] text-stone-950">
+        <MainView
+          authDisabled={!hasSupabaseConfig}
+          authMessage={authMessage}
+          consent={marketingConsent}
+          demoMode={DEMO_MODE}
+          disabled={processing}
+          email={email}
+          error={error}
+          locale={locale}
+          showAuth
+          url={url}
+          onAuthSubmit={signIn}
+          onConsentChange={setMarketingConsent}
+          onEmailChange={setEmail}
+          onContinueWithoutAccount={() => setAccountlessMode(true)}
+          onFileSelect={(file) => void runFile(file)}
+          onInvalidFile={setError}
+          onUrlChange={setUrl}
+          onUrlSubmit={() => void runUrl()}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app-surface flex min-h-screen text-app-text">
       <Sidebar
@@ -301,15 +336,24 @@ export const App = () => {
         locale={locale}
         selectedId={selectedId}
         user={user}
+        isAccountlessMode={accountlessMode}
         onNew={startNewTranscript}
         onSelect={setSelected}
         onSignOut={signOut}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="flex min-h-screen flex-col px-7 py-5">
-          <header className="mb-8 flex items-center justify-end gap-2">
-            <LanguageToggle locale={locale} onToggle={() => setLocale(locale === "ru" ? "en" : "ru")} />
-            <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+        <div className="flex min-h-screen flex-col px-8 py-5">
+          <header className="mb-8 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-app-text text-app-bg">
+                <span className="text-sm font-bold">T</span>
+              </div>
+              <span className="text-sm font-semibold text-app-text">Transcribe.md</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ThemeToggle theme={theme} onChange={setTheme} />
+              <LanguageToggle locale={locale} onToggle={() => setLocale(locale === "ru" ? "en" : "ru")} />
+            </div>
           </header>
 
           <div className="flex flex-1 items-center">
@@ -334,12 +378,14 @@ export const App = () => {
                 email={email}
                 error={error}
                 locale={locale}
-                showAuth={!user}
+                showAuth={false}
                 url={url}
                 onAuthSubmit={signIn}
                 onConsentChange={setMarketingConsent}
                 onEmailChange={setEmail}
+                onContinueWithoutAccount={() => setAccountlessMode(true)}
                 onFileSelect={(file) => void runFile(file)}
+                onInvalidFile={setError}
                 onUrlChange={setUrl}
                 onUrlSubmit={() => void runUrl()}
               />

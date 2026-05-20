@@ -18,10 +18,12 @@ interface MainViewProps {
   demoMode: boolean;
   onUrlChange: (value: string) => void;
   onFileSelect: (file: File) => void;
+  onInvalidFile: (message: string) => void;
   onUrlSubmit: () => void;
   onEmailChange: (value: string) => void;
   onConsentChange: (value: boolean) => void;
   onAuthSubmit: () => Promise<void>;
+  onContinueWithoutAccount: () => void;
 }
 
 export const MainView = ({
@@ -37,39 +39,42 @@ export const MainView = ({
   demoMode,
   onUrlChange,
   onFileSelect,
+  onInvalidFile,
   onUrlSubmit,
   onEmailChange,
   onConsentChange,
-  onAuthSubmit
+  onAuthSubmit,
+  onContinueWithoutAccount
 }: MainViewProps) => {
   const t = copy[locale];
 
+  if (showAuth) {
+    return (
+      <AuthScreen
+        consent={consent}
+        disabled={authDisabled}
+        email={email}
+        locale={locale}
+        message={authMessage}
+        onConsentChange={onConsentChange}
+        onEmailChange={onEmailChange}
+        onContinueWithoutAccount={onContinueWithoutAccount}
+        onSubmit={onAuthSubmit}
+      />
+    );
+  }
+
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-5xl">
-      <div className="mb-8">
-        <p className="text-xs uppercase tracking-[0.2em] text-app-muted">Bilingual transcription</p>
-        <h2 className="mt-3 max-w-2xl text-[44px] font-semibold leading-[1.04] text-app-text">Quiet, clean Markdown from audio and video.</h2>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-[1040px]">
+      <div className="mb-10">
+        <h2 className="text-[48px] font-semibold leading-none text-app-text">Good afternoon.</h2>
+        <p className="mt-4 max-w-xl text-base leading-7 text-app-muted">Drop a media file or paste a direct media URL. Quiet Transcript will return clean Markdown.</p>
       </div>
 
-      {showAuth ? (
-        <div className="mb-5 max-w-md">
-          <AuthScreen
-            consent={consent}
-            disabled={authDisabled}
-            email={email}
-            locale={locale}
-            message={authMessage}
-            onConsentChange={onConsentChange}
-            onEmailChange={onEmailChange}
-            onSubmit={onAuthSubmit}
-          />
-        </div>
-      ) : null}
+      {demoMode ? <p className="mb-4 rounded-2xl border border-amber-300/60 bg-amber-100/60 px-4 py-3 text-sm text-amber-900">{t.demoMode}</p> : null}
+      {error ? <p className="mb-4 rounded-2xl border border-red-300/60 bg-red-100/60 px-4 py-3 text-sm text-red-800">{error}</p> : null}
 
-      {demoMode ? <p className="mb-4 rounded-card border border-amber-300/60 bg-amber-100/60 px-4 py-3 text-sm text-amber-900">{t.demoMode}</p> : null}
-      {error ? <p className="mb-4 rounded-card border border-red-300/60 bg-red-100/60 px-4 py-3 text-sm text-red-800">{error}</p> : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <InputCard
           actionLabel={t.chooseFile}
           description="MP3, WAV, M4A, MP4, MOV, WEBM"
@@ -80,6 +85,7 @@ export const MainView = ({
           labelEn={t.fileHere}
           labelRu={t.fileHereRu}
           title={t.chooseFile}
+          onInvalidFile={onInvalidFile}
           onFileSelect={onFileSelect}
         />
         <InputCard
