@@ -47,4 +47,5 @@ export interface TranscriptionProvider {
 export interface HistoryRecord extends TranscriptionResult {
   status: TranscriptionStatus;
   markdown: string;
+  storage?: "local" | "cloud" | undefined;
 }

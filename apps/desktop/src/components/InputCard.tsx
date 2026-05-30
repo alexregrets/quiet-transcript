@@ -1,18 +1,6 @@
 import { motion } from "framer-motion";
-import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { Link2, UploadCloud } from "lucide-react";
-
-const supportedMediaExtensions = new Set(["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv"]);
-
-const isSupportedMediaFile = (file: File) => {
-  if (file.type.startsWith("audio/") || file.type.startsWith("video/")) {
-    return true;
-  }
-
-  const extension = file.name.split(".").at(-1)?.toLowerCase();
-  return extension ? supportedMediaExtensions.has(extension) : false;
-};
 
 interface BaseInputCardProps {
   eyebrow: string;
@@ -28,7 +16,6 @@ interface FileInputCardProps extends BaseInputCardProps {
   disabled: boolean;
   actionLabel: string;
   onFileSelect: (file: File) => void;
-  onInvalidFile: (message: string) => void;
 }
 
 interface UrlInputCardProps extends BaseInputCardProps {
@@ -44,7 +31,6 @@ interface UrlInputCardProps extends BaseInputCardProps {
 type InputCardProps = FileInputCardProps | UrlInputCardProps;
 
 export const InputCard = (props: InputCardProps) => {
-  const [isDragOver, setIsDragOver] = useState(false);
   const arrow = (
     <div className="pointer-events-none absolute right-5 top-5 rotate-[-4deg] text-right font-marker leading-none text-app-text">
       <div className="text-[34px]">{props.labelRu}</div>
@@ -61,64 +47,12 @@ export const InputCard = (props: InputCardProps) => {
       }
     };
 
-    const handleDragEnter = (event: DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      if (!props.disabled) {
-        setIsDragOver(true);
-      }
-    };
-
-    const handleDragOver = (event: DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      if (!props.disabled) {
-        event.dataTransfer.dropEffect = "copy";
-        setIsDragOver(true);
-      }
-    };
-
-    const handleDragLeave = (event: DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      setIsDragOver(false);
-    };
-
-    const handleDrop = (event: DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      setIsDragOver(false);
-
-      if (props.disabled) {
-        return;
-      }
-
-      const file = event.dataTransfer.files.item(0);
-      if (!file) {
-        return;
-      }
-
-      if (!isSupportedMediaFile(file)) {
-        props.onInvalidFile("Please drop an audio or video file.");
-        return;
-      }
-
-      props.onFileSelect(file);
-    };
-
     return (
       <motion.section
-        className={`glass-panel relative min-h-[340px] overflow-hidden rounded-[24px] p-6 transition ${
-          isDragOver ? "border-app-accent shadow-lift" : ""
-        }`}
+        className="glass-panel relative min-h-[340px] overflow-hidden rounded-[24px] p-6 transition"
         whileHover={{ y: -3 }}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
       >
         {arrow}
-        {isDragOver ? (
-          <div className="absolute inset-x-6 top-6 rounded-full border border-app-accent/70 bg-app-panel-strong/90 px-4 py-2 text-center text-sm font-semibold text-app-text">
-            Release to upload
-          </div>
-        ) : null}
         <div className="flex h-full flex-col justify-end">
           <div className="mb-5 grid h-12 w-12 place-items-center rounded-card border border-app-border/80 bg-app-panel-strong/70 text-app-text">
             {props.icon}

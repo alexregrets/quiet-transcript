@@ -1,13 +1,15 @@
-import { buildMarkdown, describeUrlSupport, markdownFilename, titleFromSource, type HistoryRecord } from "@transcriber/core";
+import { buildMarkdown, describeUrlSupport, fromHistoryRow, markdownFilename, titleFromSource, toHistoryInsert, type HistoryRecord, type SupabaseHistoryRow } from "@transcriber/core";
 import type { User } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { MainView } from "./components/MainView";
 import { ProcessingView } from "./components/ProcessingView";
 import { ResultView } from "./components/ResultView";
 import { Sidebar } from "./components/Sidebar";
 import { ThemeToggle, type AppTheme } from "./components/ThemeToggle";
-import { getEnvHealthCheck, transcribeFileOnDesktop, transcribeUrlOnDesktop } from "./lib/desktopBridge";
+import { getEnvHealthCheck, getPendingAuthDeepLinks, transcribeFileOnDesktop, transcribeFilePathOnDesktop, transcribeUrlOnDesktop } from "./lib/desktopBridge";
 import { copy, type Locale, stepKeys } from "./lib/i18n";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
 
@@ -15,6 +17,19 @@ const HISTORY_STORAGE_KEY = "quiet-transcript-history";
 const THEME_STORAGE_KEY = "quiet-transcript-theme";
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 const appThemes = new Set<AppTheme>(["light", "dark", "blue", "sepia"]);
+const AUTH_REDIRECT_URL = "quiet-transcript://auth";
+const supportedDropExtensions = new Set(["mp3", "wav", "m4a", "mp4", "mov", "webm", "ogg"]);
+
+interface AuthDeepLinkPayload {
+  url: string;
+}
+
+const filenameFromPath = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+
+const isSupportedDropPath = (path: string) => {
+  const extension = filenameFromPath(path).split(".").at(-1)?.toLowerCase();
+  return extension ? supportedDropExtensions.has(extension) : false;
+};
 
 const loadLocalHistory = () => {
   try {
@@ -44,7 +59,8 @@ const createDemoRecord = (source: HistoryRecord["source"]): HistoryRecord => {
   return {
     ...result,
     status: "done",
-    markdown: buildMarkdown(result)
+    markdown: buildMarkdown(result),
+    storage: "local"
   };
 };
 
@@ -66,6 +82,8 @@ export const App = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string>();
+  const [isWindowDragOver, setIsWindowDragOver] = useState(false);
+  const processingRef = useRef(false);
   const t = copy[locale];
 
   const selectedId = selected?.id ?? selected?.createdAt;
@@ -108,8 +126,38 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
-    saveLocalHistory(history);
-  }, [history]);
+    if (!supabase || !user || accountlessMode) {
+      return;
+    }
+
+    const supabaseClient = supabase;
+
+    void supabaseClient
+      .from("transcriptions")
+      .select("id,user_id,title,source_kind,source_value,status,language,duration_seconds,markdown,transcript_text,provider,created_at")
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data, error: loadError }) => {
+        if (loadError) {
+          setAuthMessage(loadError.message);
+          return;
+        }
+
+        const records = ((data ?? []) as SupabaseHistoryRow[]).map(fromHistoryRow);
+        setHistory(records);
+        setSelected(records[0] ?? null);
+      });
+  }, [accountlessMode, user]);
+
+  useEffect(() => {
+    if (!user || accountlessMode) {
+      saveLocalHistory(history.filter((record) => record.storage !== "cloud"));
+    }
+  }, [accountlessMode, history, user]);
+
+  useEffect(() => {
+    processingRef.current = processing;
+  }, [processing]);
 
   useEffect(() => {
     if (!processing) {
@@ -144,6 +192,36 @@ export const App = () => {
     setSelected(record);
   };
 
+  const saveRecordToSupabase = async (record: HistoryRecord) => {
+    if (!supabase || !user || accountlessMode) {
+      return record;
+    }
+
+    const { error: profileError } = await supabase.from("profiles").upsert({
+      id: user.id,
+      email: user.email,
+      marketing_consent: marketingConsent
+    });
+
+    if (profileError) {
+      setAuthMessage(profileError.message);
+      return { ...record, storage: "local" as const };
+    }
+
+    const { data, error: insertError } = await supabase
+      .from("transcriptions")
+      .insert(toHistoryInsert(user.id, record))
+      .select("id,user_id,title,source_kind,source_value,status,language,duration_seconds,markdown,transcript_text,provider,created_at")
+      .single();
+
+    if (insertError) {
+      setAuthMessage(insertError.message);
+      return { ...record, storage: "local" as const };
+    }
+
+    return fromHistoryRow(data as SupabaseHistoryRow);
+  };
+
   const startLog = (label: string) => {
     setError(undefined);
     setProcessing(true);
@@ -151,15 +229,17 @@ export const App = () => {
     setLog([`${new Date().toLocaleTimeString()} · ${label}`]);
   };
 
-  const finishWithPayload = (payload: { result: Omit<HistoryRecord, "status" | "markdown">; markdown: string }) => {
+  const finishWithPayload = async (payload: { result: Omit<HistoryRecord, "status" | "markdown">; markdown: string }) => {
     const record: HistoryRecord = {
       ...payload.result,
       status: "done",
-      markdown: payload.markdown
+      markdown: payload.markdown,
+      storage: user && !accountlessMode ? "cloud" : "local"
     };
+    const savedRecord = user && !accountlessMode ? await saveRecordToSupabase(record) : record;
     setActiveStep(stepKeys.length - 1);
     setLog((current) => [...current, `${new Date().toLocaleTimeString()} · ${t.done}`]);
-    addRecord(record);
+    addRecord(savedRecord);
   };
 
   const startNewTranscript = () => {
@@ -168,13 +248,20 @@ export const App = () => {
     setUrl("");
   };
 
+  const continueWithoutAccount = () => {
+    const localRecords = loadLocalHistory();
+    setAccountlessMode(true);
+    setHistory(localRecords);
+    setSelected(localRecords[0] ?? null);
+  };
+
   const runFile = async (file: File) => {
     startLog(file.name);
 
     try {
       if (DEMO_MODE) {
         const record = createDemoRecord({ kind: "file", filename: file.name, mimeType: file.type, sizeBytes: file.size });
-        finishWithPayload({
+        await finishWithPayload({
           result: record,
           markdown: record.markdown
         });
@@ -182,7 +269,30 @@ export const App = () => {
       }
 
       const payload = await transcribeFileOnDesktop(file);
-      finishWithPayload(payload);
+      await finishWithPayload(payload);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const runFilePath = async (path: string) => {
+    const filename = filenameFromPath(path);
+    startLog(filename);
+
+    try {
+      if (DEMO_MODE) {
+        const record = createDemoRecord({ kind: "file", filename, sizeBytes: 0 });
+        await finishWithPayload({
+          result: record,
+          markdown: record.markdown
+        });
+        return;
+      }
+
+      const payload = await transcribeFilePathOnDesktop(path);
+      await finishWithPayload(payload);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -207,12 +317,12 @@ export const App = () => {
     try {
       if (DEMO_MODE) {
         const record = createDemoRecord({ kind: "url", url });
-        finishWithPayload({ result: record, markdown: record.markdown });
+        await finishWithPayload({ result: record, markdown: record.markdown });
         return;
       }
 
       const payload = await transcribeUrlOnDesktop(url);
-      finishWithPayload(payload);
+      await finishWithPayload(payload);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -229,7 +339,7 @@ export const App = () => {
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: AUTH_REDIRECT_URL,
         data: {
           marketing_consent: marketingConsent
         }
@@ -239,14 +349,148 @@ export const App = () => {
     setAuthMessage(signInError ? signInError.message : "Check your email for the magic link.");
   };
 
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenDragDrop: (() => void) | undefined;
+
+    const setupDragDrop = async () => {
+      try {
+        const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type === "drop") {
+            setIsWindowDragOver(false);
+
+            if (processingRef.current) {
+              return;
+            }
+
+            const paths = event.payload.paths;
+            const firstSupportedPath = paths.find(isSupportedDropPath);
+
+            if (!firstSupportedPath) {
+              setError("Please drop an MP3, WAV, M4A, MP4, MOV, WEBM, or OGG file.");
+              return;
+            }
+
+            void runFilePath(firstSupportedPath);
+            return;
+          }
+
+          if (event.payload.type === "enter" || event.payload.type === "over") {
+            if (!processingRef.current) {
+              setIsWindowDragOver(true);
+            }
+            return;
+          }
+
+          if (event.payload.type === "leave") {
+            setIsWindowDragOver(false);
+          }
+        });
+
+        if (!isMounted) {
+          unlisten();
+          return;
+        }
+
+        unlistenDragDrop = unlisten;
+      } catch (cause) {
+        console.warn("Failed to register Tauri drag-drop listeners.", cause);
+      }
+    };
+
+    void setupDragDrop();
+
+    return () => {
+      isMounted = false;
+      unlistenDragDrop?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
+    const supabaseClient = supabase;
+
+    const completeSessionFromUrl = async (callbackUrl: string) => {
+      try {
+        const parsed = new URL(callbackUrl);
+        const params = new URLSearchParams(parsed.search);
+        const hashParams = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash);
+
+        hashParams.forEach((value, key) => params.set(key, value));
+
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token");
+        const code = params.get("code");
+
+        if (accessToken && refreshToken) {
+          const { error: sessionError } = await supabaseClient.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          setAuthMessage(sessionError ? sessionError.message : "Signed in.");
+          return;
+        }
+
+        if (code) {
+          const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(code);
+          setAuthMessage(exchangeError ? exchangeError.message : "Signed in.");
+          return;
+        }
+
+        setAuthMessage("Auth link did not include a Supabase session token.");
+      } catch (cause) {
+        setAuthMessage(cause instanceof Error ? cause.message : "Could not complete email login.");
+      }
+    };
+
+    let isMounted = true;
+    let unlistenAuth: (() => void) | undefined;
+
+    void listen<AuthDeepLinkPayload>("auth-deep-link", (event) => {
+      void completeSessionFromUrl(event.payload.url);
+    })
+      .then((unlisten) => {
+        if (isMounted) {
+          unlistenAuth = unlisten;
+        } else {
+          unlisten();
+        }
+      })
+      .catch((cause) => console.warn("Failed to register auth deep-link listener.", cause));
+
+    void getPendingAuthDeepLinks()
+      .then((urls) => {
+        for (const callbackUrl of urls) {
+          void completeSessionFromUrl(callbackUrl);
+        }
+      })
+      .catch((cause) => console.warn("Failed to read pending auth deep links.", cause));
+
+    return () => {
+      isMounted = false;
+      unlistenAuth?.();
+    };
+  }, []);
+
   const signOut = async () => {
     await supabase?.auth.signOut();
     setAccountlessMode(false);
     setUser(null);
+    const localRecords = loadLocalHistory();
+    setHistory(localRecords);
+    setSelected(localRecords[0] ?? null);
   };
 
   const saveToSupabase = async () => {
     if (!selected) {
+      return;
+    }
+
+    if (selected.storage === "cloud") {
+      setAuthMessage("Saved.");
       return;
     }
 
@@ -255,31 +499,9 @@ export const App = () => {
       return;
     }
 
-    const { error: profileError } = await supabase.from("profiles").upsert({
-      id: user.id,
-      email: user.email,
-      marketing_consent: marketingConsent
-    });
-
-    if (profileError) {
-      setAuthMessage(profileError.message);
-      return;
-    }
-
-    const { error: insertError } = await supabase.from("transcriptions").insert({
-      user_id: user.id,
-      title: selected.title,
-      source_kind: selected.source.kind,
-      source_value: selected.source.kind === "file" ? selected.source.filename : selected.source.url,
-      status: selected.status,
-      language: selected.language ?? null,
-      duration_seconds: selected.durationSeconds ?? null,
-      markdown: selected.markdown,
-      transcript_text: selected.text,
-      provider: selected.provider
-    });
-
-    setAuthMessage(insertError ? insertError.message : "Saved.");
+    const savedRecord = await saveRecordToSupabase(selected);
+    addRecord(savedRecord);
+    setAuthMessage(savedRecord.storage === "cloud" ? "Saved." : "Could not save cloud history.");
   };
 
   const copyMarkdown = async () => {
@@ -319,9 +541,8 @@ export const App = () => {
           onAuthSubmit={signIn}
           onConsentChange={setMarketingConsent}
           onEmailChange={setEmail}
-          onContinueWithoutAccount={() => setAccountlessMode(true)}
+          onContinueWithoutAccount={continueWithoutAccount}
           onFileSelect={(file) => void runFile(file)}
-          onInvalidFile={setError}
           onUrlChange={setUrl}
           onUrlSubmit={() => void runUrl()}
         />
@@ -331,6 +552,11 @@ export const App = () => {
 
   return (
     <div className="app-surface flex min-h-screen text-app-text">
+      {isWindowDragOver ? (
+        <div className="pointer-events-none fixed inset-4 z-50 grid place-items-center rounded-[32px] border border-app-accent/70 bg-app-panel/80 text-lg font-semibold text-app-text shadow-lift backdrop-blur-xl">
+          Drop audio or video file
+        </div>
+      ) : null}
       <Sidebar
         history={history}
         locale={locale}
@@ -383,9 +609,8 @@ export const App = () => {
                 onAuthSubmit={signIn}
                 onConsentChange={setMarketingConsent}
                 onEmailChange={setEmail}
-                onContinueWithoutAccount={() => setAccountlessMode(true)}
+                onContinueWithoutAccount={continueWithoutAccount}
                 onFileSelect={(file) => void runFile(file)}
-                onInvalidFile={setError}
                 onUrlChange={setUrl}
                 onUrlSubmit={() => void runUrl()}
               />

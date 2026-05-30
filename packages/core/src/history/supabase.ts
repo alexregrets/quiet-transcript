@@ -27,3 +27,17 @@ export const toHistoryInsert = (userId: string, record: HistoryRecord) => ({
   transcript_text: record.text,
   provider: record.provider
 });
+
+export const fromHistoryRow = (row: SupabaseHistoryRow): HistoryRecord => ({
+  id: row.id,
+  title: row.title,
+  source: row.source_kind === "file" ? { kind: "file", filename: row.source_value } : { kind: "url", url: row.source_value },
+  status: row.status,
+  language: row.language ?? undefined,
+  durationSeconds: row.duration_seconds ?? undefined,
+  createdAt: row.created_at,
+  text: row.transcript_text,
+  provider: row.provider,
+  markdown: row.markdown,
+  storage: "cloud"
+});

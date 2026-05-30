@@ -18,7 +18,6 @@ interface MainViewProps {
   demoMode: boolean;
   onUrlChange: (value: string) => void;
   onFileSelect: (file: File) => void;
-  onInvalidFile: (message: string) => void;
   onUrlSubmit: () => void;
   onEmailChange: (value: string) => void;
   onConsentChange: (value: boolean) => void;
@@ -39,7 +38,6 @@ export const MainView = ({
   demoMode,
   onUrlChange,
   onFileSelect,
-  onInvalidFile,
   onUrlSubmit,
   onEmailChange,
   onConsentChange,
@@ -85,7 +83,6 @@ export const MainView = ({
           labelEn={t.fileHere}
           labelRu={t.fileHereRu}
           title={t.chooseFile}
-          onInvalidFile={onInvalidFile}
           onFileSelect={onFileSelect}
         />
         <InputCard

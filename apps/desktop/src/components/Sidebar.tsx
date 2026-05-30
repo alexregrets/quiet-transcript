@@ -1,6 +1,6 @@
-import type { User } from "@supabase/supabase-js";
+﻿import type { User } from "@supabase/supabase-js";
 import type { HistoryRecord } from "@transcriber/core";
-import { FileText, LogOut, Plus } from "lucide-react";
+import { Cloud, FileText, LogOut, Plus } from "lucide-react";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
 
@@ -39,8 +39,9 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
           <FileText className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium">{record.title}</span>
-            <span className="mt-1 block text-xs">
-              {new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")} · {record.status}
+            <span className="mt-1 flex items-center gap-1.5 text-xs">
+              {record.storage === "cloud" ? <Cloud className="h-3 w-3" /> : null}
+              <span>{new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")} · {record.status}</span>
             </span>
           </span>
         </span>

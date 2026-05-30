@@ -4,26 +4,22 @@ use std::{
     collections::HashSet,
     env,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::time::sleep;
 use url::Url;
 
 const GLADIA_API_BASE: &str = "https://api.gladia.io";
 const MAX_POLLS: usize = 120;
 static ENV_REPORT: OnceLock<EnvLoadReport> = OnceLock::new();
+static PENDING_AUTH_DEEP_LINKS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 struct UploadResponse {
     audio_url: String,
-    audio_metadata: Option<AudioMetadata>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AudioMetadata {
-    audio_duration: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,6 +133,11 @@ struct EnvHealthCheck {
     checked_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct AuthDeepLinkPayload {
+    url: String,
+}
+
 #[tauri::command]
 async fn transcribe_file(
     filename: String,
@@ -167,6 +168,44 @@ async fn transcribe_file(
 }
 
 #[tauri::command]
+async fn transcribe_file_path(path: String) -> Result<TranscriptPayload, String> {
+    let path = PathBuf::from(path);
+    if !path.is_file() {
+        return Err("Dropped path is not a file.".to_string());
+    }
+
+    // Security: only the OS-provided drag/drop path is read, and only after validating it is a supported media file.
+    let filename = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "Invalid dropped filename.".to_string())?
+        .to_string();
+
+    validate_filename(&filename)?;
+    validate_drag_drop_extension(&filename)?;
+
+    let bytes = std::fs::read(&path).map_err(|error| format!("Could not read dropped file: {error}"))?;
+    let mime_type = mime_type_from_filename(&filename).map(str::to_string);
+    let api_key = gladia_key()?;
+    let client = reqwest::Client::new();
+    let size_bytes = bytes.len();
+    let audio_url = upload_file(&client, &api_key, &filename, mime_type.as_deref(), bytes).await?;
+
+    transcribe_audio_url(
+        &client,
+        &api_key,
+        &audio_url,
+        TranscriptionSource::File {
+            filename: filename.clone(),
+            mime_type,
+            size_bytes,
+        },
+        title_from_filename(&filename),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn transcribe_url(url: String) -> Result<TranscriptPayload, String> {
     validate_url(&url)?;
 
@@ -185,6 +224,14 @@ async fn transcribe_url(url: String) -> Result<TranscriptPayload, String> {
 #[tauri::command]
 fn env_health_check() -> EnvHealthCheck {
     env_report_to_health_check(ensure_env_loaded())
+}
+
+#[tauri::command]
+fn pending_auth_deep_links() -> Vec<String> {
+    pending_auth_links()
+        .lock()
+        .map(|mut links| std::mem::take(&mut *links))
+        .unwrap_or_default()
 }
 
 fn gladia_key() -> Result<String, String> {
@@ -320,12 +367,79 @@ fn validate_media_extension(filename: &str) -> Result<(), String> {
     }
 }
 
+fn validate_drag_drop_extension(filename: &str) -> Result<(), String> {
+    let allowed = ["mp3", "wav", "m4a", "mp4", "mov", "webm", "ogg"];
+    let extension = filename
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if allowed.contains(&extension.as_str()) {
+        Ok(())
+    } else {
+        Err("Unsupported dropped media file extension.".to_string())
+    }
+}
+
+fn mime_type_from_filename(filename: &str) -> Option<&'static str> {
+    let extension = filename.rsplit('.').next()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "m4a" => Some("audio/mp4"),
+        "aac" => Some("audio/aac"),
+        "ogg" => Some("audio/ogg"),
+        "opus" => Some("audio/opus"),
+        "flac" => Some("audio/flac"),
+        "mp4" => Some("video/mp4"),
+        "mov" => Some("video/quicktime"),
+        "webm" => Some("video/webm"),
+        "mkv" => Some("video/x-matroska"),
+        _ => None,
+    }
+}
+
 fn validate_url(value: &str) -> Result<(), String> {
     let parsed = Url::parse(value).map_err(|_| "Enter a valid URL.".to_string())?;
     if parsed.scheme() != "https" && parsed.scheme() != "http" {
         return Err("Only http and https URLs are supported.".to_string());
     }
     Ok(())
+}
+
+fn pending_auth_links() -> &'static Mutex<Vec<String>> {
+    PENDING_AUTH_DEEP_LINKS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn is_auth_deep_link(value: &str) -> bool {
+    Url::parse(value)
+        .map(|url| url.scheme() == "quiet-transcript" && url.host_str() == Some("auth"))
+        .unwrap_or(false)
+}
+
+fn handle_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, value: &str, store_pending: bool) {
+    if !is_auth_deep_link(value) {
+        return;
+    }
+
+    if store_pending {
+        if let Ok(mut pending) = pending_auth_links().lock() {
+            pending.push(value.to_string());
+        }
+    }
+
+    if app
+        .emit(
+            "auth-deep-link",
+            AuthDeepLinkPayload {
+                url: value.to_string(),
+            },
+        )
+        .is_err()
+    {
+        eprintln!("[auth] failed to emit auth deep-link event");
+    }
 }
 
 async fn upload_file(
@@ -569,7 +683,11 @@ fn build_markdown(result: &TranscriptionResult) -> String {
         duration,
         result.created_at,
         result.provider,
-        if result.text.trim().is_empty() { "_No transcript text returned._" } else { result.text.trim() }
+        if result.text.trim().is_empty() {
+            "_No transcript text returned._"
+        } else {
+            result.text.trim()
+        }
     );
 
     if let Some(segments) = &result.segments {
@@ -619,14 +737,35 @@ fn main() {
     ensure_env_loaded();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let _ = app.get_webview_window("main");
+
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.deep_link().register_all()?;
+
+            let app_handle = app.handle().clone();
+
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    handle_auth_deep_link(&app_handle, url.as_str(), true);
+                }
+            }
+
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    handle_auth_deep_link(&app_handle, url.as_str(), false);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             transcribe_file,
+            transcribe_file_path,
             transcribe_url,
-            env_health_check
+            env_health_check,
+            pending_auth_deep_links
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

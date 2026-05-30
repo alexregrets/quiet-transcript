@@ -50,7 +50,7 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 
 The desktop Vite app reads `VITE_*` values from the repo-root `.env`. The Tauri Rust process also reads the repo-root `.env` for `GLADIA_API_KEY`, so do not create a browser-exposed `VITE_GLADIA_API_KEY`.
 
-Run `supabase/schema.sql` in the Supabase SQL editor. Enable Supabase email magic links and add the desktop dev URL, usually `http://127.0.0.1:1420`, to allowed redirect URLs.
+Run `supabase/schema.sql` in the Supabase SQL editor. Enable Supabase email magic links and add `quiet-transcript://auth` to allowed redirect URLs.
 
 ## Toolchain And Env Notes
 
@@ -66,6 +66,7 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm dev:desktop
+pnpm --filter @transcriber/desktop tauri:build
 ```
 
 `pnpm test` runs the core Vitest suite and prints intentional placeholder messages for the desktop, web, and bot workspaces while those surfaces have no separate tests.

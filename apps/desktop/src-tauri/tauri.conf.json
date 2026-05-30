@@ -11,21 +11,41 @@
   },
   "app": {
     "windows": [
-      {
-        "title": "Quiet Transcript",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 980,
-        "minHeight": 680
-      }
-    ],
+  {
+    "title": "Quiet Transcript",
+    "width": 1280,
+    "height": 820,
+    "minWidth": 980,
+    "minHeight": 680,
+    "dragDropEnabled": true
+  }
+],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' https://*.supabase.co https://api.gladia.io; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["quiet-transcript"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/icon.ico"]
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "Quiet Transcript",
+    "shortDescription": "Bilingual desktop transcription app.",
+    "longDescription": "Quiet Transcript turns audio, video, and direct media links into clean Markdown transcripts with cloud history and AI summaries.",
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

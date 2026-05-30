@@ -29,6 +29,14 @@ export const transcribeFileOnDesktop = async (file: File) => {
   });
 };
 
+export const transcribeFilePathOnDesktop = async (path: string) => {
+  if (!isTauri()) {
+    throw new Error("Desktop transcription requires Tauri. Use the packaged app or `pnpm dev:desktop`.");
+  }
+
+  return invoke<DesktopTranscriptPayload>("transcribe_file_path", { path });
+};
+
 export const transcribeUrlOnDesktop = async (url: string) => {
   if (!isTauri()) {
     throw new Error("Desktop transcription requires Tauri. Use the packaged app or `pnpm dev:desktop`.");
@@ -43,4 +51,12 @@ export const getEnvHealthCheck = async () => {
   }
 
   return invoke<EnvHealthCheck>("env_health_check");
+};
+
+export const getPendingAuthDeepLinks = async () => {
+  if (!isTauri()) {
+    return [];
+  }
+
+  return invoke<string[]>("pending_auth_deep_links");
 };
