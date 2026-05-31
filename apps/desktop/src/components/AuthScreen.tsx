@@ -53,13 +53,6 @@ export const AuthScreen = ({
           onChange={(event) => onEmailChange(event.target.value)}
         />
 
-        <label className="mb-2 block text-sm font-medium text-stone-700">Password</label>
-        <input
-          className="mb-4 h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-950 outline-none transition focus:border-[#2563eb] focus:ring-4 focus:ring-blue-100"
-          placeholder="••••••••"
-          type="password"
-        />
-
         <label className="mb-5 flex gap-2 text-xs leading-5 text-stone-500">
           <input checked={consent} type="checkbox" onChange={(event) => onConsentChange(event.target.checked)} />
           <span>{t.marketingConsent}</span>

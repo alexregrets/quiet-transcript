@@ -368,18 +368,7 @@ fn validate_media_extension(filename: &str) -> Result<(), String> {
 }
 
 fn validate_drag_drop_extension(filename: &str) -> Result<(), String> {
-    let allowed = ["mp3", "wav", "m4a", "mp4", "mov", "webm", "ogg"];
-    let extension = filename
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-
-    if allowed.contains(&extension.as_str()) {
-        Ok(())
-    } else {
-        Err("Unsupported dropped media file extension.".to_string())
-    }
+    validate_media_extension(filename).map_err(|_| "Unsupported dropped media file extension.".to_string())
 }
 
 fn mime_type_from_filename(filename: &str) -> Option<&'static str> {

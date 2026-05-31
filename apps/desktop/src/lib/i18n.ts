@@ -33,6 +33,9 @@ export const copy = {
     saveHistory: "Save to history",
     transcript: "Transcript",
     noSelection: "Select a history item or start a new transcript.",
+    goodMorning: "Good morning.",
+    goodAfternoon: "Good afternoon.",
+    goodEvening: "Good evening.",
     demoMode: "Demo mode is on; API calls are skipped.",
     apiMissing: "Set GLADIA_API_KEY before running desktop transcription."
   },
@@ -68,6 +71,9 @@ export const copy = {
     saveHistory: "Сохранить в историю",
     transcript: "Транскрипт",
     noSelection: "Выберите запись истории или начните новый транскрипт.",
+    goodMorning: "Доброе утро.",
+    goodAfternoon: "Добрый день.",
+    goodEvening: "Добрый вечер.",
     demoMode: "Демо-режим включен; API-вызовы пропущены.",
     apiMissing: "Укажите GLADIA_API_KEY перед запуском транскрибации."
   }

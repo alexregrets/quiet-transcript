@@ -5,6 +5,13 @@ import { AuthScreen } from "./AuthScreen";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
 
+const greeting = (t: (typeof copy)[Locale]) => {
+  const hour = new Date().getHours();
+  if (hour < 12) return t.goodMorning;
+  if (hour < 17) return t.goodAfternoon;
+  return t.goodEvening;
+};
+
 interface MainViewProps {
   locale: Locale;
   url: string;
@@ -65,7 +72,7 @@ export const MainView = ({
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-[1040px]">
       <div className="mb-10">
-        <h2 className="text-[48px] font-semibold leading-none text-app-text">Good afternoon.</h2>
+        <h2 className="text-[48px] font-semibold leading-none text-app-text">{greeting(t)}</h2>
         <p className="mt-4 max-w-xl text-base leading-7 text-app-muted">Drop a media file or paste a direct media URL. Quiet Transcript will return clean Markdown.</p>
       </div>
 
@@ -75,7 +82,7 @@ export const MainView = ({
       <div className="grid gap-5 lg:grid-cols-2">
         <InputCard
           actionLabel={t.chooseFile}
-          description="MP3, WAV, M4A, MP4, MOV, WEBM"
+          description="MP3, WAV, M4A, AAC, OGG, OPUS, FLAC, MP4, MOV, WEBM, MKV"
           disabled={disabled}
           eyebrow="Upload"
           icon={<UploadCloud className="h-5 w-5" />}

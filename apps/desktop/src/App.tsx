@@ -584,7 +584,7 @@ export const App = () => {
 
           <div className="flex flex-1 items-center">
             {processing ? (
-              <ProcessingView activeStep={activeStep} locale={locale} log={log.length ? log : stepLabels} />
+              <ProcessingView activeStep={activeStep} locale={locale} log={log} />
             ) : selected ? (
               <ResultView
                 locale={locale}
