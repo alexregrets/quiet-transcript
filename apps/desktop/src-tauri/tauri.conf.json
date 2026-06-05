@@ -35,6 +35,7 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "icon": ["icons/icon.ico"],
+    "resources": ["resources/yt-dlp.exe"],
     "publisher": "Quiet Transcript",
     "shortDescription": "Bilingual desktop transcription app.",
     "longDescription": "Quiet Transcript turns audio, video, and direct media links into clean Markdown transcripts with cloud history and AI summaries.",

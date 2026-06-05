@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Minimal app permissions for the transcription MVP.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-save",
+    "fs:allow-write-text-file",
+    "fs:scope-home-recursive"
+  ]
 }

@@ -12,6 +12,8 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::time::sleep;
 use url::Url;
 
+static YTDLP_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+
 const GLADIA_API_BASE: &str = "https://api.gladia.io";
 const MAX_POLLS: usize = 120;
 static ENV_REPORT: OnceLock<EnvLoadReport> = OnceLock::new();
@@ -211,10 +213,67 @@ async fn transcribe_url(url: String) -> Result<TranscriptPayload, String> {
 
     let api_key = gladia_key()?;
     let client = reqwest::Client::new();
+
+    if is_direct_media_url(&url) {
+        return transcribe_audio_url(
+            &client,
+            &api_key,
+            &url,
+            TranscriptionSource::Url { url: url.clone() },
+            title_from_url(&url),
+        )
+        .await;
+    }
+
+    // Non-direct URL: extract audio via yt-dlp
+    let ytdlp = resolve_ytdlp_path().ok_or_else(|| "yt-dlp not found in resources.".to_string())?;
+    let temp_dir = std::env::temp_dir();
+    let out_template = temp_dir.join("qt_%(id)s.%(ext)s");
+    let out_template_str = out_template.to_string_lossy().to_string();
+
+    let output = std::process::Command::new(&ytdlp)
+        .args([
+            "--extract-audio",
+            "--audio-format", "m4a",
+            "--audio-quality", "0",
+            "--no-playlist",
+            "--no-warnings",
+            "--print", "after_move:filepath",
+            "-o", &out_template_str,
+            &url,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run yt-dlp: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp failed: {stderr}"));
+    }
+
+    let extracted_path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let extracted_path = PathBuf::from(&extracted_path_str);
+
+    if !extracted_path.is_file() {
+        return Err(format!("yt-dlp did not produce a file at: {extracted_path_str}"));
+    }
+
+    let filename = extracted_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("extracted.m4a")
+        .to_string();
+
+    let bytes = std::fs::read(&extracted_path)
+        .map_err(|e| format!("Could not read extracted audio: {e}"))?;
+    let _ = std::fs::remove_file(&extracted_path);
+
+    let size_bytes = bytes.len();
+    let audio_url = upload_file(&client, &api_key, &filename, Some("audio/mp4"), bytes).await?;
+
     transcribe_audio_url(
         &client,
         &api_key,
-        &url,
+        &audio_url,
         TranscriptionSource::Url { url: url.clone() },
         title_from_url(&url),
     )
@@ -395,6 +454,40 @@ fn validate_url(value: &str) -> Result<(), String> {
         return Err("Only http and https URLs are supported.".to_string());
     }
     Ok(())
+}
+
+fn is_direct_media_url(value: &str) -> bool {
+    let extensions = ["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv"];
+    Url::parse(value)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|segs| segs.last().map(str::to_lowercase))
+        })
+        .map(|last| {
+            extensions.iter().any(|ext| last.ends_with(&format!(".{ext}")))
+        })
+        .unwrap_or(false)
+}
+
+fn resolve_ytdlp_path() -> Option<PathBuf> {
+    YTDLP_PATH
+        .get_or_init(|| {
+            // In production: next to the exe in the resources dir
+            let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+            let candidate = exe_dir.join("yt-dlp.exe");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            // Dev: in src-tauri/resources
+            let cargo_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let dev_candidate = cargo_dir.join("resources").join("yt-dlp.exe");
+            if dev_candidate.is_file() {
+                return Some(dev_candidate);
+            }
+            None
+        })
+        .clone()
 }
 
 fn pending_auth_links() -> &'static Mutex<Vec<String>> {
@@ -726,7 +819,20 @@ fn main() {
     ensure_env_loaded();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Forward deep-link URLs from second instance to first
+            for arg in &argv {
+                handle_auth_deep_link(app, arg, false);
+            }
+            // Bring window to front
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let _ = app.get_webview_window("main");
 

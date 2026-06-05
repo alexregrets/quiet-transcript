@@ -16,6 +16,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@transcriber/core": "workspace:*",
     "@transcriber/ui": "workspace:*",
     "framer-motion": "^12.9.2",

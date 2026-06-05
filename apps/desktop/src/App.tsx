@@ -1,6 +1,9 @@
 import { buildMarkdown, describeUrlSupport, fromHistoryRow, markdownFilename, titleFromSource, toHistoryInsert, type HistoryRecord, type SupabaseHistoryRow } from "@transcriber/core";
 import type { User } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
+import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
@@ -307,10 +310,7 @@ export const App = () => {
       return;
     }
 
-    if (support === "extractor-required") {
-      setError("MVP supports direct media URLs first. YouTube/page extraction is isolated as the next source extractor.");
-      return;
-    }
+    // "extractor-required" URLs are handled by yt-dlp on the Rust side
 
     startLog(url);
 
@@ -506,22 +506,23 @@ export const App = () => {
 
   const copyMarkdown = async () => {
     if (selected) {
-      await navigator.clipboard.writeText(selected.markdown);
+      await clipboardWriteText(selected.markdown);
     }
   };
 
-  const downloadMarkdown = () => {
+  const downloadMarkdown = async () => {
     if (!selected) {
       return;
     }
 
-    const blob = new Blob([selected.markdown], { type: "text/markdown;charset=utf-8" });
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = href;
-    anchor.download = markdownFilename(selected.title);
-    anchor.click();
-    URL.revokeObjectURL(href);
+    const path = await saveDialog({
+      defaultPath: markdownFilename(selected.title),
+      filters: [{ name: "Markdown", extensions: ["md"] }]
+    });
+
+    if (path) {
+      await writeTextFile(path, selected.markdown);
+    }
   };
 
   if (!user && !accountlessMode) {
@@ -590,7 +591,7 @@ export const App = () => {
                 locale={locale}
                 record={selected}
                 onCopy={() => void copyMarkdown()}
-                onDownload={downloadMarkdown}
+                onDownload={() => void downloadMarkdown()}
                 onNew={startNewTranscript}
                 onSave={() => void saveToSupabase()}
               />
