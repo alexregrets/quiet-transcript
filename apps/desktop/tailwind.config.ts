@@ -24,8 +24,7 @@ const config: Config = {
         lift: "var(--shadow-lift)"
       },
       fontFamily: {
-        sans: ["DM Sans", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
-        marker: ["Caveat", "Segoe Print", "cursive"]
+        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"]
       }
     }
   },

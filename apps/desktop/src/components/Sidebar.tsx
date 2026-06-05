@@ -1,6 +1,7 @@
-﻿import type { User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
 import type { HistoryRecord } from "@transcriber/core";
-import { Cloud, FileText, LogOut, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cloud, FileText, LogOut, Plus } from "lucide-react";
+import { useState } from "react";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
 
@@ -17,6 +18,7 @@ interface SidebarProps {
 
 export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, onNew, onSelect, onSignOut }: SidebarProps) => {
   const t = copy[locale];
+  const [collapsed, setCollapsed] = useState(false);
   const today = new Date().toDateString();
   const todayRecords = history.filter((record) => new Date(record.createdAt).toDateString() === today);
   const earlierRecords = history.filter((record) => new Date(record.createdAt).toDateString() !== today);
@@ -24,10 +26,28 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
   const renderRecord = (record: HistoryRecord) => {
     const id = record.id ?? record.createdAt;
 
+    if (collapsed) {
+      return (
+        <button
+          key={id}
+          title={record.title}
+          className={`flex w-full items-center justify-center rounded-xl p-2.5 transition ${
+            selectedId === id
+              ? "bg-app-panel-strong text-app-text shadow-soft"
+              : "text-app-muted hover:bg-app-panel-strong/50 hover:text-app-text"
+          }`}
+          type="button"
+          onClick={() => onSelect(record)}
+        >
+          <FileText className="h-4 w-4 shrink-0" />
+        </button>
+      );
+    }
+
     return (
       <button
         key={id}
-        className={`w-full rounded-xl px-3 py-3 text-left transition ${
+        className={`w-full rounded-xl px-3 py-2.5 text-left transition ${
           selectedId === id
             ? "bg-app-panel-strong text-app-text shadow-soft"
             : "text-app-muted hover:bg-app-panel-strong/50 hover:text-app-text"
@@ -35,13 +55,13 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
         type="button"
         onClick={() => onSelect(record)}
       >
-        <span className="flex items-start gap-3">
+        <span className="flex items-start gap-2.5">
           <FileText className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium">{record.title}</span>
-            <span className="mt-1 flex items-center gap-1.5 text-xs">
+            <span className="mt-0.5 flex items-center gap-1.5 text-xs text-app-muted/70">
               {record.storage === "cloud" ? <Cloud className="h-3 w-3" /> : null}
-              <span>{new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")} · {record.status}</span>
+              <span>{new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")}</span>
             </span>
           </span>
         </span>
@@ -51,49 +71,78 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
 
   const renderGroup = (label: string, records: HistoryRecord[]) =>
     records.length ? (
-      <section className="space-y-2">
-        <div className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-app-muted">{label}</div>
+      <section className="space-y-1">
+        {!collapsed && (
+          <div className="px-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-app-muted/60">{label}</div>
+        )}
         {records.map(renderRecord)}
       </section>
     ) : null;
 
   return (
-    <aside className="flex h-screen w-[300px] shrink-0 flex-col border-r border-app-border/60 bg-app-panel/86 p-4">
-      <div className="mb-4 px-1">
-        <p className="text-sm font-semibold text-app-text">{t.appName}</p>
-        <p className="text-xs text-app-muted">History</p>
-      </div>
-
+    <aside
+      className="relative flex h-screen shrink-0 flex-col border-r border-app-border/60 bg-app-panel/86 transition-all duration-200"
+      style={{ width: collapsed ? "60px" : "260px" }}
+    >
+      {/* Toggle button */}
       <button
-        className="mb-4 inline-flex h-11 items-center justify-center gap-2 rounded-full border border-app-border/70 bg-app-panel-strong/70 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong"
+        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-app-border/70 bg-app-panel-strong text-app-muted shadow-soft transition hover:text-app-text"
         type="button"
-        onClick={onNew}
+        onClick={() => setCollapsed((c) => !c)}
       >
-        <Plus className="h-4 w-4" />
-        {t.newTranscript}
+        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
       </button>
 
-      <div className="flex-1 space-y-5 overflow-y-auto pr-1">
+      <div className={`p-3 ${collapsed ? "px-2" : "p-4"}`}>
+        {!collapsed && (
+          <div className="mb-3 px-1">
+            <p className="text-sm font-semibold text-app-text">{t.appName}</p>
+            <p className="text-xs text-app-muted/70">History</p>
+          </div>
+        )}
+
+        <button
+          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-app-border/70 bg-app-panel-strong/70 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong ${collapsed ? "px-0" : "px-3"}`}
+          type="button"
+          title={t.newTranscript}
+          onClick={onNew}
+        >
+          <Plus className="h-4 w-4 shrink-0" />
+          {!collapsed && t.newTranscript}
+        </button>
+      </div>
+
+      <div className={`flex-1 space-y-4 overflow-y-auto ${collapsed ? "px-2" : "px-3"}`}>
         {history.length ? (
           <>
             {renderGroup("TODAY", todayRecords)}
             {renderGroup("EARLIER", earlierRecords)}
           </>
-        ) : (
+        ) : !collapsed ? (
           <p className="rounded-xl border border-dashed border-app-border/80 p-4 text-sm leading-6 text-app-muted">{t.emptyHistory}</p>
-        )}
-      </div>
-
-      <div className="mt-4 rounded-xl border border-app-border/70 bg-app-panel-strong/46 p-3">
-        <p className="truncate text-sm font-semibold text-app-text">{isAccountlessMode ? "Demo mode" : user?.email ?? t.authTitle}</p>
-        <p className="mt-1 text-xs text-app-muted">{isAccountlessMode ? "Local session" : user ? t.signedIn : "Supabase magic link"}</p>
-        {user ? (
-          <button className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-app-muted hover:text-app-text" type="button" onClick={() => void onSignOut()}>
-            <LogOut className="h-3.5 w-3.5" />
-            {t.signOut}
-          </button>
         ) : null}
       </div>
+
+      {!collapsed && (
+        <div className={`m-3 rounded-xl border border-app-border/70 bg-app-panel-strong/46 p-3`}>
+          <p className="truncate text-sm font-semibold text-app-text">{isAccountlessMode ? "Demo mode" : user?.email ?? t.authTitle}</p>
+          <p className="mt-0.5 text-xs text-app-muted/70">{isAccountlessMode ? "Local session" : user ? t.signedIn : "Supabase magic link"}</p>
+          {user ? (
+            <button className="mt-2.5 inline-flex items-center gap-2 text-xs font-semibold text-app-muted hover:text-app-text" type="button" onClick={() => void onSignOut()}>
+              <LogOut className="h-3.5 w-3.5" />
+              {t.signOut}
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {collapsed && user && (
+        <div className="mb-3 flex justify-center">
+          <button className="flex h-8 w-8 items-center justify-center rounded-xl text-app-muted hover:text-app-text" title={t.signOut} type="button" onClick={() => void onSignOut()}>
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </aside>
   );
 };

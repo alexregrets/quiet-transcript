@@ -31,11 +31,9 @@ interface UrlInputCardProps extends BaseInputCardProps {
 type InputCardProps = FileInputCardProps | UrlInputCardProps;
 
 export const InputCard = (props: InputCardProps) => {
-  const arrow = (
-    <div className="pointer-events-none absolute right-5 top-5 rotate-[-4deg] text-right font-marker leading-none text-app-text">
-      <div className="text-[34px]">{props.labelRu}</div>
-      <div className="text-[28px] opacity-80">{props.labelEn}</div>
-      <div className="mt-1 text-[52px]">↙</div>
+  const badge = (
+    <div className="pointer-events-none absolute right-5 top-5 rounded-full border border-app-border/60 bg-app-panel-strong/60 px-3 py-1 text-xs font-medium text-app-muted backdrop-blur-sm">
+      {props.labelEn}
     </div>
   );
 
@@ -52,7 +50,7 @@ export const InputCard = (props: InputCardProps) => {
         className="glass-panel relative min-h-[340px] overflow-hidden rounded-[24px] p-6 transition"
         whileHover={{ y: -3 }}
       >
-        {arrow}
+        {badge}
         <div className="flex h-full flex-col justify-end">
           <div className="mb-5 grid h-12 w-12 place-items-center rounded-card border border-app-border/80 bg-app-panel-strong/70 text-app-text">
             {props.icon}
@@ -77,7 +75,7 @@ export const InputCard = (props: InputCardProps) => {
 
   return (
     <motion.section whileHover={{ y: -3 }} className="glass-panel relative min-h-[340px] overflow-hidden rounded-[24px] p-6">
-      {arrow}
+      {badge}
       <form className="flex h-full flex-col justify-end" onSubmit={handleSubmit}>
         <div className="mb-5 grid h-12 w-12 place-items-center rounded-card border border-app-border/80 bg-app-panel-strong/70 text-app-text">
           {props.icon}
