@@ -1,10 +1,9 @@
 import { buildMarkdown, describeUrlSupport, fromHistoryRow, markdownFilename, titleFromSource, toHistoryInsert, type HistoryRecord, type SupabaseHistoryRow } from "@transcriber/core";
 import type { User } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
-import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { downloadDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { MainView } from "./components/MainView";
@@ -86,6 +85,7 @@ export const App = () => {
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [isWindowDragOver, setIsWindowDragOver] = useState(false);
+  const [copied, setCopied] = useState(false);
   const processingRef = useRef(false);
   const t = copy[locale];
 
@@ -505,24 +505,28 @@ export const App = () => {
   };
 
   const copyMarkdown = async () => {
-    if (selected) {
-      await clipboardWriteText(selected.markdown);
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(selected.markdown);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = selected.markdown;
+      el.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const downloadMarkdown = async () => {
-    if (!selected) {
-      return;
-    }
-
-    const path = await saveDialog({
-      defaultPath: markdownFilename(selected.title),
-      filters: [{ name: "Markdown", extensions: ["md"] }]
-    });
-
-    if (path) {
-      await writeTextFile(path, selected.markdown);
-    }
+    if (!selected) return;
+    const dir = await downloadDir();
+    const filename = markdownFilename(selected.title);
+    await writeTextFile(`${dir}\\${filename}`, selected.markdown);
   };
 
   if (!user && !accountlessMode) {
@@ -590,6 +594,7 @@ export const App = () => {
               <ResultView
                 locale={locale}
                 record={selected}
+                copied={copied}
                 onCopy={() => void copyMarkdown()}
                 onDownload={() => void downloadMarkdown()}
                 onNew={startNewTranscript}

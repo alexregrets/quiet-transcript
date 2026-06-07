@@ -1,5 +1,5 @@
 import type { HistoryRecord } from "@transcriber/core";
-import { Copy, Download, FileText, Plus, Save } from "lucide-react";
+import { Check, Copy, Download, FileText, Plus, Save } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
@@ -7,13 +7,14 @@ import { copy } from "../lib/i18n";
 interface ResultViewProps {
   locale: Locale;
   record: HistoryRecord;
+  copied?: boolean;
   onCopy: () => void;
   onDownload: () => void;
   onSave: () => void;
   onNew: () => void;
 }
 
-export const ResultView = ({ locale, record, onCopy, onDownload, onSave, onNew }: ResultViewProps) => {
+export const ResultView = ({ locale, record, copied, onCopy, onDownload, onSave, onNew }: ResultViewProps) => {
   const t = copy[locale];
   const source = record.source.kind === "file" ? record.source.filename : record.source.url;
 
@@ -26,8 +27,8 @@ export const ResultView = ({ locale, record, onCopy, onDownload, onSave, onNew }
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="inline-flex h-10 items-center gap-2 rounded-full border border-app-border bg-app-panel px-4 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong" type="button" onClick={onCopy}>
-            <Copy className="h-4 w-4" />
-            {t.copyMarkdown}
+            {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+            {copied ? (locale === "ru" ? "Скопировано" : "Copied!") : t.copyMarkdown}
           </button>
           <button className="inline-flex h-10 items-center gap-2 rounded-full border border-app-border bg-app-panel px-4 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong" type="button" onClick={onDownload}>
             <Download className="h-4 w-4" />

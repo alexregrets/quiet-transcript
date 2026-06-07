@@ -11,6 +11,7 @@ build/
 .turbo/
 target/
 apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/resources/yt-dlp.exe
 
 *.log
 *.local

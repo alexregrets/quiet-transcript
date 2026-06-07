@@ -8,6 +8,7 @@
     "clipboard-manager:allow-write-text",
     "dialog:allow-save",
     "fs:allow-write-text-file",
-    "fs:scope-home-recursive"
+    "fs:scope-home-recursive",
+    "core:path:default"
   ]
 }
