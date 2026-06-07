@@ -21,7 +21,7 @@ export const copy = {
     chooseFile: "Choose audio or video",
     startUrl: "Start from URL",
     urlPlaceholder: "https://example.com/audio.mp3",
-    directMediaOnly: "Direct media URLs work now. YouTube/page extraction is prepared as a provider TODO.",
+    directMediaOnly: "YouTube, TikTok, VK, Instagram, Rutube and direct media URLs.",
     uploading: "Uploading",
     extracting: "Extracting audio",
     sending: "Sending to API",
@@ -37,7 +37,11 @@ export const copy = {
     goodAfternoon: "Good afternoon.",
     goodEvening: "Good evening.",
     demoMode: "Demo mode is on; API calls are skipped.",
-    apiMissing: "Set GLADIA_API_KEY before running desktop transcription."
+    apiMissing: "Set GLADIA_API_KEY before running desktop transcription.",
+    miniMode: "Mini",
+    expand: "Full view",
+    transcribeBtn: "Transcribe",
+    dropOrClick: "Drop or click to select file"
   },
   ru: {
     appName: "Quiet Transcript",
@@ -59,7 +63,7 @@ export const copy = {
     chooseFile: "Выбрать аудио или видео",
     startUrl: "Начать по ссылке",
     urlPlaceholder: "https://example.com/audio.mp3",
-    directMediaOnly: "Сейчас работают прямые медиа-ссылки. YouTube и страницы подготовлены как TODO в архитектуре.",
+    directMediaOnly: "YouTube, TikTok, VK, Instagram, Rutube и прямые медиа-ссылки.",
     uploading: "Загрузка",
     extracting: "Извлечение аудио",
     sending: "Отправка в API",
@@ -75,7 +79,11 @@ export const copy = {
     goodAfternoon: "Добрый день.",
     goodEvening: "Добрый вечер.",
     demoMode: "Демо-режим включен; API-вызовы пропущены.",
-    apiMissing: "Укажите GLADIA_API_KEY перед запуском транскрибации."
+    apiMissing: "Укажите GLADIA_API_KEY перед запуском транскрибации.",
+    miniMode: "Мини",
+    expand: "Полный вид",
+    transcribeBtn: "Транскрибировать",
+    dropOrClick: "Перетащите или нажмите для выбора файла"
   }
 } satisfies Record<Locale, Record<string, string>>;
 

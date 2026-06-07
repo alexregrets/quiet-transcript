@@ -9,6 +9,7 @@
     "dialog:allow-save",
     "fs:allow-write-text-file",
     "fs:scope-home-recursive",
-    "core:path:default"
+    "core:path:default",
+    "core:window:allow-set-size"
   ]
 }

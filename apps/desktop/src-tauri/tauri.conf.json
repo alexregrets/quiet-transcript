@@ -15,8 +15,8 @@
     "title": "Quiet Transcript",
     "width": 1280,
     "height": 820,
-    "minWidth": 980,
-    "minHeight": 680,
+    "minWidth": 380,
+    "minHeight": 300,
     "dragDropEnabled": true
   }
 ],

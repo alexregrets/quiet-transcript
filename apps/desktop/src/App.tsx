@@ -1,12 +1,16 @@
 import { buildMarkdown, describeUrlSupport, fromHistoryRow, markdownFilename, titleFromSource, toHistoryInsert, type HistoryRecord, type SupabaseHistoryRow } from "@transcriber/core";
 import type { User } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { downloadDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { Minimize2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { MainView } from "./components/MainView";
+import { MiniView } from "./components/MiniView";
 import { ProcessingView } from "./components/ProcessingView";
 import { ResultView } from "./components/ResultView";
 import { Sidebar } from "./components/Sidebar";
@@ -17,6 +21,7 @@ import { hasSupabaseConfig, supabase } from "./lib/supabase";
 
 const HISTORY_STORAGE_KEY = "quiet-transcript-history";
 const THEME_STORAGE_KEY = "quiet-transcript-theme";
+const MINI_MODE_STORAGE_KEY = "quiet-transcript-mini-mode";
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 const appThemes = new Set<AppTheme>(["light", "dark", "blue", "sepia"]);
 const AUTH_REDIRECT_URL = "quiet-transcript://auth";
@@ -86,6 +91,7 @@ export const App = () => {
   const [error, setError] = useState<string>();
   const [isWindowDragOver, setIsWindowDragOver] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isMiniMode, setIsMiniMode] = useState(() => localStorage.getItem(MINI_MODE_STORAGE_KEY) === "true");
   const processingRef = useRef(false);
   const t = copy[locale];
 
@@ -529,6 +535,16 @@ export const App = () => {
     await writeTextFile(`${dir}\\${filename}`, selected.markdown);
   };
 
+  const toggleMiniMode = async () => {
+    const nextMini = !isMiniMode;
+    setIsMiniMode(nextMini);
+    localStorage.setItem(MINI_MODE_STORAGE_KEY, String(nextMini));
+    try {
+      const win = getCurrentWindow();
+      await win.setSize(nextMini ? new LogicalSize(420, 500) : new LogicalSize(1280, 820));
+    } catch { /* best-effort resize */ }
+  };
+
   if (!user && !accountlessMode) {
     return (
       <div className="min-h-screen bg-[#f0ede8] text-stone-950">
@@ -552,6 +568,29 @@ export const App = () => {
           onUrlSubmit={() => void runUrl()}
         />
       </div>
+    );
+  }
+
+  if (isMiniMode) {
+    return (
+      <MiniView
+        locale={locale}
+        url={url}
+        disabled={processing}
+        processing={processing}
+        error={error}
+        selected={selected}
+        copied={copied}
+        log={log}
+        onUrlChange={setUrl}
+        onUrlSubmit={() => void runUrl()}
+        onFileSelect={(file) => void runFile(file)}
+        onCopy={() => void copyMarkdown()}
+        onDownload={() => void downloadMarkdown()}
+        onSave={() => void saveToSupabase()}
+        onNew={startNewTranscript}
+        onExpand={() => void toggleMiniMode()}
+      />
     );
   }
 
@@ -584,6 +623,13 @@ export const App = () => {
             <div className="flex items-center gap-2">
               <ThemeToggle theme={theme} onChange={setTheme} />
               <LanguageToggle locale={locale} onToggle={() => setLocale(locale === "ru" ? "en" : "ru")} />
+              <button
+                onClick={() => void toggleMiniMode()}
+                className="rounded-lg border border-app-border/60 bg-app-panel p-1.5 text-app-muted transition hover:text-app-text"
+                title={t.miniMode}
+              >
+                <Minimize2 className="h-4 w-4" />
+              </button>
             </div>
           </header>
 
