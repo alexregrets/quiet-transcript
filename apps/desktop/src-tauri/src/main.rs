@@ -9,7 +9,7 @@ use std::{
     sync::{Mutex, OnceLock},
     time::Duration,
 };
-use tauri::{Emitter, Manager};
+use tauri::{path::BaseDirectory, Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::time::sleep;
 use url::Url;
@@ -226,6 +226,7 @@ async fn transcribe_file_path(
 
 #[tauri::command]
 async fn transcribe_url(
+    app: tauri::AppHandle,
     url: String,
     api_key: Option<String>,
 ) -> Result<TranscriptPayload, String> {
@@ -246,7 +247,8 @@ async fn transcribe_url(
     }
 
     // Non-direct URL: extract audio via yt-dlp
-    let ytdlp = resolve_ytdlp_path().ok_or_else(|| "yt-dlp not found in resources.".to_string())?;
+    let ytdlp = resolve_ytdlp_path(&app)
+        .ok_or_else(|| "yt-dlp is missing from this installation.".to_string())?;
     let temp_dir = std::env::temp_dir();
     let out_template = temp_dir.join("qt_%(id)s.%(ext)s");
     let out_template_str = out_template.to_string_lossy().to_string();
@@ -556,22 +558,30 @@ fn is_direct_media_url(value: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn resolve_ytdlp_path() -> Option<PathBuf> {
+/// Locates the bundled yt-dlp binary.
+///
+/// Must go through Tauri's resource resolver: the bundler installs resources into a
+/// `resources/` directory beside the executable, so probing next to the exe misses them,
+/// and `CARGO_MANIFEST_DIR` is a compile-time path that only exists on the build machine.
+/// Getting this wrong fails only in the packaged app, never in `tauri dev`.
+fn resolve_ytdlp_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     YTDLP_PATH
         .get_or_init(|| {
-            // In production: next to the exe in the resources dir
-            let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-            let candidate = exe_dir.join("yt-dlp.exe");
-            if candidate.is_file() {
-                return Some(candidate);
+            if let Ok(resolved) = app
+                .path()
+                .resolve("resources/yt-dlp.exe", BaseDirectory::Resource)
+            {
+                if resolved.is_file() {
+                    return Some(resolved);
+                }
             }
-            // Dev: in src-tauri/resources
-            let cargo_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let dev_candidate = cargo_dir.join("resources").join("yt-dlp.exe");
-            if dev_candidate.is_file() {
-                return Some(dev_candidate);
-            }
-            None
+
+            // Fallback for `cargo run` outside the bundler.
+            let dev_candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("yt-dlp.exe");
+
+            dev_candidate.is_file().then_some(dev_candidate)
         })
         .clone()
 }
