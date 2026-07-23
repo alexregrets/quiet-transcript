@@ -37,11 +37,27 @@ export const copy = {
     goodAfternoon: "Good afternoon.",
     goodEvening: "Good evening.",
     demoMode: "Demo mode is on; API calls are skipped.",
-    apiMissing: "Set GLADIA_API_KEY before running desktop transcription.",
+    apiMissing: "Add a Gladia API key in Settings before transcribing.",
     miniMode: "Mini",
     expand: "Full view",
     transcribeBtn: "Transcribe",
-    dropOrClick: "Drop or click to select file"
+    dropOrClick: "Drop or click to select file",
+    settings: "Settings",
+    apiKeyTitle: "Gladia API key",
+    apiKeyIntro:
+      "Quiet Transcript sends your audio to Gladia for transcription. Paste your own key to use the app — it is stored on this computer only and never leaves it except in requests to Gladia.",
+    apiKeyPlaceholder: "Paste your Gladia API key",
+    apiKeyHint: "Get a free key at gladia.io — the free tier covers about 10 hours per month.",
+    save: "Save",
+    testKey: "Test key",
+    checking: "Checking…",
+    keySaved: "Saved.",
+    keyValid: "Key works.",
+    keyUnverified: "Saved, but Gladia did not confirm the key just now.",
+    removeKey: "Remove key",
+    usingEnvKey: "No key saved — falling back to GLADIA_API_KEY from .env.",
+    noKeyWarning: "Add a Gladia API key in Settings to start transcribing.",
+    back: "Back"
   },
   ru: {
     appName: "Quiet Transcript",
@@ -79,11 +95,27 @@ export const copy = {
     goodAfternoon: "Добрый день.",
     goodEvening: "Добрый вечер.",
     demoMode: "Демо-режим включен; API-вызовы пропущены.",
-    apiMissing: "Укажите GLADIA_API_KEY перед запуском транскрибации.",
+    apiMissing: "Добавьте API-ключ Gladia в настройках перед транскрибацией.",
     miniMode: "Мини",
     expand: "Полный вид",
     transcribeBtn: "Транскрибировать",
-    dropOrClick: "Перетащите или нажмите для выбора файла"
+    dropOrClick: "Перетащите или нажмите для выбора файла",
+    settings: "Настройки",
+    apiKeyTitle: "API-ключ Gladia",
+    apiKeyIntro:
+      "Quiet Transcript отправляет аудио в Gladia для распознавания. Вставьте свой ключ, чтобы пользоваться приложением — он хранится только на этом компьютере и уходит лишь в запросах к Gladia.",
+    apiKeyPlaceholder: "Вставьте свой API-ключ Gladia",
+    apiKeyHint: "Бесплатный ключ можно получить на gladia.io — бесплатный тариф даёт около 10 часов в месяц.",
+    save: "Сохранить",
+    testKey: "Проверить ключ",
+    checking: "Проверка…",
+    keySaved: "Сохранено.",
+    keyValid: "Ключ работает.",
+    keyUnverified: "Сохранено, но Gladia сейчас не подтвердила ключ.",
+    removeKey: "Удалить ключ",
+    usingEnvKey: "Ключ не сохранён — используется GLADIA_API_KEY из .env.",
+    noKeyWarning: "Добавьте API-ключ Gladia в настройках, чтобы начать транскрибацию.",
+    back: "Назад"
   }
 } satisfies Record<Locale, Record<string, string>>;
 

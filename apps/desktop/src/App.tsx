@@ -6,15 +6,17 @@ import { downloadDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import { Minimize2 } from "lucide-react";
+import { Minimize2, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { MainView } from "./components/MainView";
 import { MiniView } from "./components/MiniView";
 import { ProcessingView } from "./components/ProcessingView";
 import { ResultView } from "./components/ResultView";
+import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { ThemeToggle, type AppTheme } from "./components/ThemeToggle";
+import { loadGladiaKey } from "./lib/apiKey";
 import { getEnvHealthCheck, getPendingAuthDeepLinks, transcribeFileOnDesktop, transcribeFilePathOnDesktop, transcribeUrlOnDesktop } from "./lib/desktopBridge";
 import { copy, type Locale, stepKeys } from "./lib/i18n";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
@@ -92,25 +94,37 @@ export const App = () => {
   const [isWindowDragOver, setIsWindowDragOver] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isMiniMode, setIsMiniMode] = useState(() => localStorage.getItem(MINI_MODE_STORAGE_KEY) === "true");
+  const [showSettings, setShowSettings] = useState(false);
+  const [gladiaKey, setGladiaKey] = useState(() => loadGladiaKey());
+  const [envKeyPresent, setEnvKeyPresent] = useState(false);
   const processingRef = useRef(false);
+  // The drag-drop listener is registered once and closes over the first render, so
+  // the key check has to be read through a ref to stay current.
+  const needsApiKeyRef = useRef(false);
   const t = copy[locale];
 
   const selectedId = selected?.id ?? selected?.createdAt;
   const stepLabels = useMemo(() => stepKeys.map((key) => t[key]), [t]);
+  // Production builds ship no .env, so without a saved key there is nothing to transcribe with.
+  const needsApiKey = !DEMO_MODE && !gladiaKey && !envKeyPresent;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
+  // Runs in every build: production has no .env, so this is what tells us whether
+  // the user must supply their own key before transcription can work at all.
   useEffect(() => {
-    if (!import.meta.env.DEV) {
-      return;
-    }
-
     void getEnvHealthCheck()
       .then((report) => {
-        if (report) {
+        if (!report) {
+          return;
+        }
+
+        setEnvKeyPresent(report.gladia_key_present);
+
+        if (import.meta.env.DEV) {
           console.info("[env] health check", report);
         }
       })
@@ -167,6 +181,10 @@ export const App = () => {
   useEffect(() => {
     processingRef.current = processing;
   }, [processing]);
+
+  useEffect(() => {
+    needsApiKeyRef.current = needsApiKey;
+  }, [needsApiKey]);
 
   useEffect(() => {
     if (!processing) {
@@ -264,7 +282,22 @@ export const App = () => {
     setSelected(localRecords[0] ?? null);
   };
 
+  /** Sends the user to Settings instead of letting the request fail deep in Rust. */
+  const ensureApiKey = () => {
+    if (!needsApiKeyRef.current) {
+      return true;
+    }
+
+    setError(t.noKeyWarning);
+    setShowSettings(true);
+    return false;
+  };
+
   const runFile = async (file: File) => {
+    if (!ensureApiKey()) {
+      return;
+    }
+
     startLog(file.name);
 
     try {
@@ -287,6 +320,10 @@ export const App = () => {
   };
 
   const runFilePath = async (path: string) => {
+    if (!ensureApiKey()) {
+      return;
+    }
+
     const filename = filenameFromPath(path);
     startLog(filename);
 
@@ -313,6 +350,10 @@ export const App = () => {
     const support = describeUrlSupport(url);
     if (support === "invalid") {
       setError("Enter a valid http or https URL.");
+      return;
+    }
+
+    if (!ensureApiKey()) {
       return;
     }
 
@@ -572,6 +613,15 @@ export const App = () => {
   }
 
   if (isMiniMode) {
+    // Without this the mini window would have no way to reach Settings when a key is missing.
+    if (showSettings) {
+      return (
+        <div className="app-surface min-h-screen overflow-y-auto p-4 text-app-text">
+          <SettingsView locale={locale} onBack={() => setShowSettings(false)} onKeyChange={setGladiaKey} />
+        </div>
+      );
+    }
+
     return (
       <MiniView
         locale={locale}
@@ -624,6 +674,18 @@ export const App = () => {
               <ThemeToggle theme={theme} onChange={setTheme} />
               <LanguageToggle locale={locale} onToggle={() => setLocale(locale === "ru" ? "en" : "ru")} />
               <button
+                onClick={() => setShowSettings((current) => !current)}
+                className={`relative rounded-lg border border-app-border/60 bg-app-panel p-1.5 transition hover:text-app-text ${
+                  showSettings ? "text-app-text" : "text-app-muted"
+                }`}
+                title={t.settings}
+              >
+                <Settings className="h-4 w-4" />
+                {needsApiKey ? (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-amber-500" />
+                ) : null}
+              </button>
+              <button
                 onClick={() => void toggleMiniMode()}
                 className="rounded-lg border border-app-border/60 bg-app-panel p-1.5 text-app-muted transition hover:text-app-text"
                 title={t.miniMode}
@@ -634,7 +696,13 @@ export const App = () => {
           </header>
 
           <div className="flex flex-1 items-center">
-            {processing ? (
+            {showSettings ? (
+              <SettingsView
+                locale={locale}
+                onBack={() => setShowSettings(false)}
+                onKeyChange={setGladiaKey}
+              />
+            ) : processing ? (
               <ProcessingView activeStep={activeStep} locale={locale} log={log} />
             ) : selected ? (
               <ResultView

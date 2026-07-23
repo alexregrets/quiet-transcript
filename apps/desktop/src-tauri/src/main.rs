@@ -18,6 +18,9 @@ static YTDLP_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 const GLADIA_API_BASE: &str = "https://api.gladia.io";
 const MAX_POLLS: usize = 120;
+/// Files are buffered in memory before upload, so refuse anything that would risk
+/// exhausting RAM. Surfaced to the user as a clear message instead of a crash.
+const MAX_UPLOAD_BYTES: u64 = 500 * 1024 * 1024;
 static ENV_REPORT: OnceLock<EnvLoadReport> = OnceLock::new();
 static PENDING_AUTH_DEEP_LINKS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
@@ -147,11 +150,14 @@ async fn transcribe_file(
     filename: String,
     mime_type: Option<String>,
     bytes: Vec<u8>,
+    api_key: Option<String>,
 ) -> Result<TranscriptPayload, String> {
     validate_filename(&filename)?;
     validate_media_extension(&filename)?;
 
-    let api_key = gladia_key()?;
+    validate_upload_size(bytes.len() as u64)?;
+
+    let api_key = resolve_api_key(api_key)?;
     let client = reqwest::Client::new();
     let size_bytes = bytes.len();
     let audio_url = upload_file(&client, &api_key, &filename, mime_type.as_deref(), bytes).await?;
@@ -172,7 +178,10 @@ async fn transcribe_file(
 }
 
 #[tauri::command]
-async fn transcribe_file_path(path: String) -> Result<TranscriptPayload, String> {
+async fn transcribe_file_path(
+    path: String,
+    api_key: Option<String>,
+) -> Result<TranscriptPayload, String> {
     let path = PathBuf::from(path);
     if !path.is_file() {
         return Err("Dropped path is not a file.".to_string());
@@ -188,9 +197,15 @@ async fn transcribe_file_path(path: String) -> Result<TranscriptPayload, String>
     validate_filename(&filename)?;
     validate_drag_drop_extension(&filename)?;
 
+    // Check size from metadata first so an oversized file is never read into memory.
+    let size_on_disk = std::fs::metadata(&path)
+        .map_err(|error| format!("Could not inspect dropped file: {error}"))?
+        .len();
+    validate_upload_size(size_on_disk)?;
+
     let bytes = std::fs::read(&path).map_err(|error| format!("Could not read dropped file: {error}"))?;
     let mime_type = mime_type_from_filename(&filename).map(str::to_string);
-    let api_key = gladia_key()?;
+    let api_key = resolve_api_key(api_key)?;
     let client = reqwest::Client::new();
     let size_bytes = bytes.len();
     let audio_url = upload_file(&client, &api_key, &filename, mime_type.as_deref(), bytes).await?;
@@ -210,10 +225,13 @@ async fn transcribe_file_path(path: String) -> Result<TranscriptPayload, String>
 }
 
 #[tauri::command]
-async fn transcribe_url(url: String) -> Result<TranscriptPayload, String> {
+async fn transcribe_url(
+    url: String,
+    api_key: Option<String>,
+) -> Result<TranscriptPayload, String> {
     validate_url(&url)?;
 
-    let api_key = gladia_key()?;
+    let api_key = resolve_api_key(api_key)?;
     let client = reqwest::Client::new();
 
     if is_direct_media_url(&url) {
@@ -269,7 +287,7 @@ async fn transcribe_url(url: String) -> Result<TranscriptPayload, String> {
         .map_err(|e| format!("Could not read extracted audio: {e}"))?;
     let _ = std::fs::remove_file(&extracted_path);
 
-    let size_bytes = bytes.len();
+    validate_upload_size(bytes.len() as u64)?;
     let audio_url = upload_file(&client, &api_key, &filename, Some("audio/mp4"), bytes).await?;
 
     transcribe_audio_url(
@@ -295,9 +313,50 @@ fn pending_auth_deep_links() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Checks whether a Gladia key is accepted, without spending transcription quota.
+///
+/// Only an explicit 401/403 is reported as a bad key. Any other non-success status
+/// resolves to `unverified` so a Gladia outage or an endpoint change never tells the
+/// user their key is invalid when it is not.
+#[tauri::command]
+async fn verify_gladia_key(api_key: String) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("Enter an API key.".to_string());
+    }
+
+    let response = reqwest::Client::new()
+        .get(format!("{GLADIA_API_BASE}/v2/pre-recorded"))
+        .query(&[("limit", "1")])
+        .header("x-gladia-key", key)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Gladia: {error}"))?;
+
+    match response.status().as_u16() {
+        401 | 403 => Err("Gladia rejected this API key.".to_string()),
+        status if (200..300).contains(&status) => Ok("valid".to_string()),
+        _ => Ok("unverified".to_string()),
+    }
+}
+
+/// A key supplied from the Settings screen wins; the `.env` value is the dev fallback.
+fn resolve_api_key(user_key: Option<String>) -> Result<String, String> {
+    if let Some(key) = user_key {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
+    gladia_key()
+}
+
 fn gladia_key() -> Result<String, String> {
     ensure_env_loaded();
-    env::var("GLADIA_API_KEY").map_err(|_| "GLADIA_API_KEY is not set.".to_string())
+    env::var("GLADIA_API_KEY")
+        .map_err(|_| "No Gladia API key. Add one in Settings, or set GLADIA_API_KEY.".to_string())
 }
 
 fn ensure_env_loaded() -> &'static EnvLoadReport {
@@ -447,6 +506,31 @@ fn mime_type_from_filename(filename: &str) -> Option<&'static str> {
         "webm" => Some("video/webm"),
         "mkv" => Some("video/x-matroska"),
         _ => None,
+    }
+}
+
+fn validate_upload_size(size_bytes: u64) -> Result<(), String> {
+    if size_bytes == 0 {
+        return Err("That file is empty.".to_string());
+    }
+
+    if size_bytes > MAX_UPLOAD_BYTES {
+        return Err(format!(
+            "File is {} and the limit is {}. Trim it or split it into parts.",
+            format_bytes(size_bytes),
+            format_bytes(MAX_UPLOAD_BYTES)
+        ));
+    }
+
+    Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    let megabytes = bytes as f64 / (1024.0 * 1024.0);
+    if megabytes >= 1024.0 {
+        format!("{:.1} GB", megabytes / 1024.0)
+    } else {
+        format!("{megabytes:.0} MB")
     }
 }
 
@@ -861,6 +945,7 @@ fn main() {
             transcribe_file,
             transcribe_file_path,
             transcribe_url,
+            verify_gladia_key,
             env_health_check,
             pending_auth_deep_links
         ])

@@ -1,0 +1,41 @@
+[Unit]
+Description=Quiet Transcript Telegram bot
+Documentation=https://github.com/alexregrets/quiet-transcript
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quiet
+Group=quiet
+WorkingDirectory=/opt/quiet-transcript
+
+# The bot also locates this file itself; declaring it here means systemd fails fast
+# with a clear error if the secrets are missing entirely.
+EnvironmentFile=/opt/quiet-transcript/.env
+
+# tsx is invoked by absolute path so the unit does not depend on pnpm being on PATH.
+ExecStart=/opt/quiet-transcript/apps/bot/node_modules/.bin/tsx /opt/quiet-transcript/apps/bot/src/index.ts
+
+Restart=always
+RestartSec=5s
+# Telegram polling reconnects on its own; only give up if it dies repeatedly and fast.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quiet-transcript-bot
+
+# Hardening: the bot only needs outbound network plus a scratch dir for yt-dlp.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/quiet-transcript
+
+[Install]
+WantedBy=multi-user.target

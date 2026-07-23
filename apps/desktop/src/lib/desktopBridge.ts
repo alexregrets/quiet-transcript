@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { TranscriptionResult } from "@transcriber/core";
+import { loadGladiaKey } from "./apiKey";
 
 export interface DesktopTranscriptPayload {
   result: TranscriptionResult;
@@ -16,6 +17,13 @@ export interface EnvHealthCheck {
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 
+/**
+ * Read at call time rather than passed in by callers, so every entry point
+ * (main view, mini view, drag-and-drop) picks up the saved key automatically.
+ * `null` lets the Rust side fall back to GLADIA_API_KEY from .env.
+ */
+const currentApiKey = () => loadGladiaKey() || null;
+
 export const transcribeFileOnDesktop = async (file: File) => {
   if (!isTauri()) {
     throw new Error("Desktop transcription requires Tauri. Use the packaged app or `pnpm dev:desktop`.");
@@ -25,7 +33,8 @@ export const transcribeFileOnDesktop = async (file: File) => {
   return invoke<DesktopTranscriptPayload>("transcribe_file", {
     filename: file.name,
     mimeType: file.type || null,
-    bytes
+    bytes,
+    apiKey: currentApiKey()
   });
 };
 
@@ -34,7 +43,7 @@ export const transcribeFilePathOnDesktop = async (path: string) => {
     throw new Error("Desktop transcription requires Tauri. Use the packaged app or `pnpm dev:desktop`.");
   }
 
-  return invoke<DesktopTranscriptPayload>("transcribe_file_path", { path });
+  return invoke<DesktopTranscriptPayload>("transcribe_file_path", { path, apiKey: currentApiKey() });
 };
 
 export const transcribeUrlOnDesktop = async (url: string) => {
@@ -42,7 +51,18 @@ export const transcribeUrlOnDesktop = async (url: string) => {
     throw new Error("Desktop transcription requires Tauri. Use the packaged app or `pnpm dev:desktop`.");
   }
 
-  return invoke<DesktopTranscriptPayload>("transcribe_url", { url });
+  return invoke<DesktopTranscriptPayload>("transcribe_url", { url, apiKey: currentApiKey() });
+};
+
+export type KeyVerdict = "valid" | "unverified";
+
+/** Resolves to a verdict, or rejects with a message when Gladia refuses the key. */
+export const verifyGladiaKeyOnDesktop = async (apiKey: string) => {
+  if (!isTauri()) {
+    throw new Error("Key verification requires the desktop app.");
+  }
+
+  return invoke<KeyVerdict>("verify_gladia_key", { apiKey });
 };
 
 export const getEnvHealthCheck = async () => {

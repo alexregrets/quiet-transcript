@@ -1,31 +1,131 @@
 # Quiet Transcript
 
-Quiet Transcript is a bilingual desktop-first transcription MVP. Users can sign in with email, choose an audio/video file or paste a direct media URL, transcribe through Gladia, preview the result, copy/download Markdown, and save history through Supabase.
+**AI-native desktop transcription app.** Drop audio, video, or a social link → get clean Markdown.
+
+Built with Tauri 2 + React + Rust + Supabase + Gladia + yt-dlp.
+
+---
+
+## What It Does
+
+```
+audio/video file, direct media URL, or social link (YouTube/TikTok/VK/Instagram/Rutube)
+→ yt-dlp extracts audio (if social link)
+→ Gladia transcription API
+→ clean Markdown output
+→ copy / download .md
+→ save to history (local or Supabase)
+```
+
+Two window modes: full workspace (sidebar + themes) and a 420×500 mini mode for quick one-off transcriptions.
+
+Target user: knowledge workers, students, researchers who want transcripts in Markdown for Obsidian, Notion, or AI tools.
+
+---
+
+## Current Status (June 2026)
+
+### Working ✅
+- Desktop app launches, no console window in release build
+- File upload → Gladia → Markdown transcript
+- Direct media URL → Gladia → Markdown transcript
+- **Social URL extraction** — YouTube, TikTok, VK, Instagram, Rutube via bundled yt-dlp, audio extracted then sent to Gladia
+- Copy Markdown / Download .md — native clipboard/filesystem calls (browser APIs were unreliable in WebView2)
+- History sidebar (local, grouped TODAY/EARLIER), Supabase sync for logged-in users
+- 4 themes: Light, Dark, Blue, Sepia
+- Bilingual UI: EN/RU (README/AGENTS mention EN/JA from an earlier pass — RU is what's actually shipped and used)
+- Demo / accountless mode — visible "Continue without account" button, no env flag needed
+- Email magic link auth via Supabase
+- Deep link: `quiet-transcript://auth` — single-instance plugin ensures this focuses the existing window instead of opening a second one
+- ProcessingView redesigned — single centered column, animated waveform, step list with active/done/pending states, capped scrollable log
+- Drag-and-drop — works in production build (Tauri/WebView2 blocks it in dev mode, this is expected and not worth fixing)
+- Mini compact mode (420×500) — URL input, compact drop zone, transcribe button, Copy/Download actions, no sidebar
+- User-supplied Gladia API key — Settings screen, stored in localStorage, falls back to `.env` `GLADIA_API_KEY` in dev
+- Windows installer builds via `tauri:build`
+
+### Not Working / TODO ❌
+- `apps/web` — stub only (~23 lines), imports `@transcriber/core` but no server-side Gladia route yet
+- `apps/bot` (Telegraf) — stub only (~24 lines), detects media links but doesn't transcribe
+- Additional transcription providers beyond Gladia (OpenAI Whisper, AssemblyAI, Deepgram considered, not built)
+- AI summary after transcription — deliberately deferred, no API budget for Anthropic calls
+- Landing page
+- Onboarding flow for first-time users
+- Broader error handling UX (oversized files, network loss mid-transcription)
+- Telegram Stars monetization — researched, not implemented; needs the bot to actually transcribe first
+- Mini mode and social URL extraction implemented but **not yet tested end-to-end** — verify before shipping
+
+---
 
 ## Architecture
 
-- `apps/desktop` - Tauri 2 + React + Vite MVP. The Rust side owns Gladia calls so `GLADIA_API_KEY` is never exposed to client code.
-- `apps/web` - Next.js shell for the web version. Phase 2 should add server routes for Gladia upload/transcription.
-- `apps/bot` - Telegraf workspace. Node.js was chosen over Python because the rest of the monorepo is TypeScript and can share `packages/core` directly.
-- `packages/core` - provider abstraction, Gladia REST provider, URL validation, filename sanitization, Markdown builder, history types.
-- `packages/ui` - small shared React primitives.
-- `supabase/schema.sql` - Auth profile and transcription history schema with RLS.
+```
+apps/
+  desktop/          ← main app (Tauri 2 + React + Vite + TypeScript) — this is the real product
+    src/
+      components/   ← Sidebar, MainView, MiniView, ProcessingView, ResultView,
+                       InputCard, AuthScreen, SettingsView, ThemeToggle, LanguageToggle
+      lib/          ← desktopBridge.ts (Tauri command wrappers), supabase.ts, i18n.ts
+    src-tauri/
+      src/main.rs   ← ~870 lines. Gladia calls, yt-dlp invocation, env loading,
+                       file-path transcription, deep link handler, single-instance plugin
+      tauri.conf.json
+      capabilities/default.json
 
-## Windows Setup
+  web/              ← stub, Phase 2. No Gladia server route yet.
+  bot/               ← stub, Phase 2. Telegraf skeleton, link detection only.
 
-Install prerequisites in PowerShell:
+packages/
+  core/             ← TranscriptionProvider interface, Gladia REST provider,
+                       TranscriptionResult/HistoryRecord types, status state machine
+                       (queued → uploading → extracting → sending → transcribing →
+                        building_markdown → done | error), Markdown builder,
+                       URL validation, filename sanitization, Supabase history helpers.
+                       Has Vitest tests for the Markdown builder.
+  ui/               ← shared React primitives, used by desktop and (eventually) web
 
-```powershell
-winget install OpenJS.NodeJS.LTS
-winget install Rustlang.Rustup
-winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --quiet --wait"
-winget install Microsoft.EdgeWebView2Runtime
-corepack enable
-corepack prepare pnpm@9.15.4 --activate
+supabase/
+  schema.sql        ← profiles, marketing_consent, transcriptions tables, RLS policies
+
+docs/
+  source-extraction.md
 ```
 
-Restart PowerShell, then verify:
+**Key security rule:** `GLADIA_API_KEY` lives only in Rust/Tauri, or is supplied by the user via Settings and stored in localStorage — never as `VITE_GLADIA_API_KEY`. Supabase anon key is safe for frontend.
 
+---
+
+## Stack
+
+| Layer | Tech | Why |
+|---|---|---|
+| Desktop shell | Tauri 2 | Rust backend, lightweight, API key stays server-side |
+| Frontend | React + Vite + TypeScript | Fast dev, good TS support |
+| Styling | Tailwind + CSS variables | 4 themes via token swap |
+| Transcription | Gladia API | Free tier 10h/month, good accuracy |
+| Social extraction | yt-dlp (bundled) | Pulls audio from YouTube/TikTok/VK/Instagram/Rutube before sending to Gladia |
+| Auth + History | Supabase | Email magic link, RLS, free tier |
+| Monorepo | pnpm workspace | Shared packages across desktop/web/bot |
+
+---
+
+## Windows Setup (new machine)
+
+```powershell
+winget install OpenJS.NodeJS.LTS --source winget
+winget install Rustlang.Rustup --source winget
+winget install Git.Git --source winget
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --quiet --wait"
+winget install Microsoft.EdgeWebView2Runtime --source winget
+```
+
+Restart PowerShell, then:
+
+```powershell
+npm install -g pnpm
+rustup default stable
+```
+
+Verify:
 ```powershell
 node --version
 pnpm --version
@@ -33,81 +133,108 @@ rustc --version
 cargo --version
 ```
 
-Install dependencies and create the root env file:
+Clone and install:
+```powershell
+git clone https://github.com/alexregrets/quiet-transcript
+cd quiet-transcript
+pnpm install
+```
+
+---
+
+## Environment Setup
+
+Create `.env` in repo root — **must be UTF-8**. PowerShell's `echo > .env` writes the wrong encoding and Rust/dotenvy will silently fail to read it. Always use `Set-Content -Encoding utf8`:
 
 ```powershell
-pnpm install
-Copy-Item .env.example .env
+Set-Content -Path .env -Value "GLADIA_API_KEY=your_key" -Encoding utf8
+Add-Content -Path .env -Value "VITE_SUPABASE_URL=https://your-project.supabase.co" -Encoding utf8
+Add-Content -Path .env -Value "VITE_SUPABASE_ANON_KEY=your_anon_key" -Encoding utf8
 ```
 
-Required environment variables:
-
-```bash
-GLADIA_API_KEY=your_gladia_key
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_anon_key
+Expected log on startup:
+```
+[env] loaded: C:\...\quiet-transcript\.env
+[env] GLADIA_API_KEY present after load: true
 ```
 
-The desktop Vite app reads `VITE_*` values from the repo-root `.env`. The Tauri Rust process also reads the repo-root `.env` for `GLADIA_API_KEY`, so do not create a browser-exposed `VITE_GLADIA_API_KEY`.
+Note: end users don't need this `.env` — they can enter their own Gladia key in the app's Settings screen. The `.env` path is for local dev only.
 
-Run `supabase/schema.sql` in the Supabase SQL editor. Enable Supabase email magic links and add `quiet-transcript://auth` to allowed redirect URLs.
+---
 
-## Toolchain And Env Notes
+## Supabase Setup
 
-- Node and `pnpm` install and run the frontend/workspace TypeScript packages.
-- Rust and Cargo are required by Tauri for the desktop shell; `pnpm dev:desktop` cannot launch without `cargo`.
-- Vite exposes only variables with a `VITE_` prefix to browser code.
-- `GLADIA_API_KEY` must stay Rust/Tauri-side only. Do not add `VITE_GLADIA_API_KEY`.
+1. Create project at supabase.com (this project uses EU West / Ireland region)
+2. Run `supabase/schema.sql` in SQL Editor
+3. Authentication → Providers → Email → enable
+4. Authentication → URL Configuration:
+   - Site URL: `http://127.0.0.1:1420`
+   - Redirect URLs: add `quiet-transcript://auth`
 
-## Verify Locally
+---
+
+## Run / Build / Typecheck
 
 ```powershell
-pnpm install
-pnpm typecheck
-pnpm test
 pnpm dev:desktop
 pnpm --filter @transcriber/desktop tauri:build
-```
-
-`pnpm test` runs the core Vitest suite and prints intentional placeholder messages for the desktop, web, and bot workspaces while those surfaces have no separate tests.
-
-## Run
-
-```bash
-pnpm dev:desktop
-pnpm dev:web
-pnpm dev:bot
-```
-
-## Build And Verify
-
-```bash
 pnpm typecheck
-pnpm test
-pnpm build
-pnpm --filter @transcriber/desktop tauri:build
 ```
 
-## MVP Behavior
+Installer output: `apps/desktop/src-tauri/target/release/bundle/` (`.msi` and `.exe`)
+Plain exe: `apps/desktop/src-tauri/target/release/quiet_transcript.exe`
 
-- File flow uploads the selected browser `File` bytes to the Tauri backend, then Tauri uploads to Gladia.
-- URL flow accepts direct media URLs first.
-- YouTube/page extraction is intentionally isolated behind `packages/core/src/source/url.ts` for the next source extractor.
-- History is stored locally immediately for responsiveness and can be saved to Supabase after login.
-- Raw media is not written to disk by the app.
+If `pnpm typecheck` fails in an agent shell with a generic `fetch failed`, run the desktop check directly as a workaround:
+```powershell
+node_modules\.bin\tsc.cmd -p apps\desktop\tsconfig.json --noEmit
+```
 
-## Gladia API Shape
+---
 
-The implementation follows Gladia's current prerecorded flow:
+## Gladia API Flow
 
-1. `POST /v2/upload` for files.
-2. `POST /v2/pre-recorded` with `audio_url`.
-3. Poll `GET /v2/pre-recorded/:id` until `status === "done"`.
+1. `POST /v2/upload` — upload file bytes, get `audio_url`
+2. `POST /v2/pre-recorded` — start transcription job with `audio_url`
+3. Poll `GET /v2/pre-recorded/:id` until `status === "done"`
+4. Parse utterances → Markdown builder → ResultView
 
-## Security Notes
+For social links: yt-dlp extracts audio to a temp file first, then the same flow runs; temp file is cleaned up after transcription.
 
-- Keep `GLADIA_API_KEY` server-side or in the Tauri process only.
-- Supabase anon keys are client-safe, but RLS must stay enabled.
-- The Tauri command validates filenames, supported extensions, and URL schemes.
-- No arbitrary local path is accepted from the UI.
-- Raw media bytes are streamed to Gladia and not stored permanently by this app.
+---
+
+## Known Issues / Gotchas
+
+- **Drag-and-drop shows a forbidden cursor in `pnpm dev:desktop`** — this is a Tauri/WebView2 dev-mode limitation on Windows, not a real bug. It works correctly in the production build. Don't waste time "fixing" dev mode.
+- **PowerShell `.env` encoding** — always `Set-Content -Encoding utf8`, never `echo > .env`.
+- **Browser clipboard/download APIs were unreliable in WebView2** — the app uses native Tauri calls instead. If touching copy/download logic, keep using the native path, don't revert to `navigator.clipboard` / anchor-download tricks.
+- **Magic link previously opened a second window** — fixed via `tauri-plugin-single-instance`; the deep link handler forwards the URL to the first window and calls `set_focus()`. Don't remove this plugin.
+- **README/AGENTS.md may still say EN/JA localization** — that's stale. The shipped languages are EN/RU.
+
+---
+
+## Roadmap / Priority Order
+
+1. **Verify** — test mini mode and social URL extraction (YouTube/TikTok/VK/Instagram/Rutube) end-to-end; these were just implemented and haven't been confirmed working in practice
+2. Confirm `.msi` installer runs cleanly on a fresh Windows machine
+3. Basic error handling UX (oversized file, network failure mid-transcription)
+4. Simple onboarding for first-time users
+5. Landing page
+6. `apps/web` — add server-side Gladia route, connect to `packages/core`
+7. `apps/bot` — implement actual transcription, not just link detection
+8. Telegram Stars monetization (researched: works via Telegram Mini App inside the bot) — only after the bot itself transcribes
+9. Additional transcription providers (user choice of Gladia / Whisper / AssemblyAI / Deepgram) — deferred, no immediate need
+
+---
+
+## Agent Handoff Notes
+
+If you are an AI agent (Claude Code, Codex, Cursor) working on this project:
+
+- Read `AGENTS.md` for task rules and Definition of Done
+- `GLADIA_API_KEY` must stay Rust-side or user-supplied via Settings — never `VITE_GLADIA_API_KEY`
+- Run typecheck (`pnpm typecheck` or the direct `tsc` workaround above) before marking any task done
+- Commit after each working feature — the project owner tests manually between commits, so keep commits scoped to one fix/feature at a time
+- Do not "fix" drag-and-drop in dev mode — it's expected behavior, only production build matters
+- Do not revert native clipboard/download calls back to browser APIs
+- Do not remove `tauri-plugin-single-instance` or the deep link focus handler
+- This is currently a **solo project moving toward a small team** (one collaborator, "Vanity", added on GitHub) — keep code readable for a second contributor, not just optimized for one person's mental model
