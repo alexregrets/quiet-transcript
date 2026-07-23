@@ -43,9 +43,17 @@ Target user: knowledge workers, students, researchers who want transcripts in Ma
 - User-supplied Gladia API key — Settings screen, stored in localStorage, falls back to `.env` `GLADIA_API_KEY` in dev
 - Windows installer builds via `tauri:build`
 
+### Telegram bot ✅
+- Transcribes voice messages, audio, video, video notes, and media documents
+- Direct media URLs go straight to Gladia; social links go through yt-dlp first
+- Replies with a `.md` file; one status message is edited in place for progress
+- EN/RU based on the Telegram client language; one job per chat at a time
+- Rejects files over Telegram's 20 MB bot download limit with an explanation
+- Deploys via systemd — see `deploy/DEPLOY.md`
+- **Not yet run against a live bot token** — needs a token from @BotFather
+
 ### Not Working / TODO ❌
 - `apps/web` — stub only (~23 lines), imports `@transcriber/core` but no server-side Gladia route yet
-- `apps/bot` (Telegraf) — stub only (~24 lines), detects media links but doesn't transcribe
 - Additional transcription providers beyond Gladia (OpenAI Whisper, AssemblyAI, Deepgram considered, not built)
 - AI summary after transcription — deliberately deferred, no API budget for Anthropic calls
 - Landing page
@@ -72,7 +80,8 @@ apps/
       capabilities/default.json
 
   web/              ← stub, Phase 2. No Gladia server route yet.
-  bot/               ← stub, Phase 2. Telegraf skeleton, link detection only.
+  bot/              ← Telegraf. config/router/extract/pipeline/messages split so the
+                       routing and size-limit logic is unit-testable without network.
 
 packages/
   core/             ← TranscriptionProvider interface, Gladia REST provider,
@@ -85,6 +94,11 @@ packages/
 
 supabase/
   schema.sql        ← profiles, marketing_consent, transcriptions tables, RLS policies
+
+deploy/
+  setup-server.sh   ← idempotent Debian/Ubuntu provisioning for the bot
+  quiet-transcript-bot.service
+  DEPLOY.md
 
 docs/
   source-extraction.md
@@ -214,14 +228,16 @@ For social links: yt-dlp extracts audio to a temp file first, then the same flow
 
 ## Roadmap / Priority Order
 
-1. **Verify** — test mini mode and social URL extraction (YouTube/TikTok/VK/Instagram/Rutube) end-to-end; these were just implemented and haven't been confirmed working in practice
-2. Confirm `.msi` installer runs cleanly on a fresh Windows machine
-3. Basic error handling UX (oversized file, network failure mid-transcription)
-4. Simple onboarding for first-time users
-5. Landing page
-6. `apps/web` — add server-side Gladia route, connect to `packages/core`
-7. `apps/bot` — implement actual transcription, not just link detection
-8. Telegram Stars monetization (researched: works via Telegram Mini App inside the bot) — only after the bot itself transcribes
+1. **Verify** — test mini mode, the Settings key flow, and social URL extraction
+   (YouTube/TikTok/VK/Instagram/Rutube) end-to-end; implemented but not confirmed in practice
+2. **Deploy the bot** — needs a token from @BotFather, then `deploy/DEPLOY.md`
+3. Confirm `.msi` installer runs cleanly on a fresh Windows machine
+4. Remaining error-handling UX — network loss mid-transcription (oversized and empty
+   files are now rejected with a clear message)
+5. Simple onboarding for first-time users
+6. Landing page
+7. `apps/web` — add server-side Gladia route, connect to `packages/core`
+8. Telegram Stars monetization (researched: works via Telegram Mini App inside the bot)
 9. Additional transcription providers (user choice of Gladia / Whisper / AssemblyAI / Deepgram) — deferred, no immediate need
 
 ---

@@ -5,6 +5,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { downloadDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { Minimize2, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -551,20 +552,19 @@ export const App = () => {
     setAuthMessage(savedRecord.storage === "cloud" ? "Saved." : "Could not save cloud history.");
   };
 
+  // Uses the Tauri plugin rather than navigator.clipboard, which is unreliable in WebView2.
   const copyMarkdown = async () => {
-    if (!selected) return;
-    try {
-      await navigator.clipboard.writeText(selected.markdown);
-    } catch {
-      const el = document.createElement("textarea");
-      el.value = selected.markdown;
-      el.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(el);
-      el.focus();
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
+    if (!selected) {
+      return;
     }
+
+    try {
+      await writeText(selected.markdown);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return;
+    }
+
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
