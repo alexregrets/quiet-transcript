@@ -3,13 +3,24 @@
 The bot is the only workspace that needs a server: it must stay online to poll Telegram.
 The desktop app is a Windows binary and the web app is still a stub.
 
+## Who pays for transcription
+
+Every Telegram user connects **their own** Gladia key with `/setkey`. The server holds
+no shared transcription key, so running the bot costs you nothing in Gladia quota and
+one user cannot exhaust another's.
+
+The trade-off is that the bot stores other people's API keys. They live in
+`.bot-keys.json` next to `.env`, written with `0600` permissions, never logged, and
+removable by the user at any time with `/deletekey`. Treat that file as a secret: it is
+gitignored, and it should not end up in backups that others can read.
+
 ## Prerequisites
 
 1. **A Telegram bot token.** Message [@BotFather](https://t.me/BotFather), send `/newbot`,
    follow the prompts, and copy the token it gives you.
-2. **A Gladia API key.** From [gladia.io](https://gladia.io) — the free tier covers about
-   10 hours of audio per month.
-3. **A Debian or Ubuntu server** with root access.
+2. **A Debian or Ubuntu server** with root access.
+
+You do **not** need a Gladia key on the server.
 
 ## One-time server setup
 
@@ -33,16 +44,18 @@ systemd unit. It is idempotent — re-run it to deploy new commits.
 
 ## Secrets
 
-The script writes an empty `/opt/quiet-transcript/.env`. Fill it in:
+The script writes an empty `/opt/quiet-transcript/.env`. It needs one value:
 
 ```bash
 cat > /opt/quiet-transcript/.env <<'EOF'
 TELEGRAM_BOT_TOKEN=123456:your-token-here
-GLADIA_API_KEY=your-gladia-key
 EOF
 chmod 600 /opt/quiet-transcript/.env
 chown quiet:quiet /opt/quiet-transcript/.env
 ```
+
+Optional: set `BOT_KEYSTORE_PATH` to move the user key file somewhere other than
+`/opt/quiet-transcript/.bot-keys.json`.
 
 ## Start and verify
 

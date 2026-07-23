@@ -70,9 +70,9 @@ pnpm install --frozen-lockfile
 
 if [ ! -f "$APP_DIR/.env" ]; then
   log "No .env found — creating a template"
+  # No GLADIA_API_KEY: each Telegram user supplies their own through /setkey.
   cat > "$APP_DIR/.env" <<'ENVTEMPLATE'
 TELEGRAM_BOT_TOKEN=
-GLADIA_API_KEY=
 ENVTEMPLATE
   echo "Fill in $APP_DIR/.env before starting the service."
 fi
@@ -89,7 +89,7 @@ log "Done"
 cat <<SUMMARY
 
 Next:
-  1. Put real values in $APP_DIR/.env (TELEGRAM_BOT_TOKEN, GLADIA_API_KEY)
+  1. Put your bot token in $APP_DIR/.env (TELEGRAM_BOT_TOKEN)
   2. systemctl restart $SERVICE_NAME
   3. systemctl status $SERVICE_NAME
   4. journalctl -u $SERVICE_NAME -f

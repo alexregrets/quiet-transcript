@@ -44,13 +44,16 @@ Target user: knowledge workers, students, researchers who want transcripts in Ma
 - Windows installer builds via `tauri:build`
 
 ### Telegram bot ✅
+- **Bring your own key.** Each user connects their own Gladia key with `/setkey`, so the
+  server holds no shared transcription key and nobody spends someone else's quota.
+  `/deletekey` removes it. Keys live in `.bot-keys.json` (0600, gitignored, never logged).
 - Transcribes voice messages, audio, video, video notes, and media documents
 - Direct media URLs go straight to Gladia; social links go through yt-dlp first
 - Replies with a `.md` file; one status message is edited in place for progress
 - EN/RU based on the Telegram client language; one job per chat at a time
 - Rejects files over Telegram's 20 MB bot download limit with an explanation
-- Deploys via systemd — see `deploy/DEPLOY.md`
-- **Not yet run against a live bot token** — needs a token from @BotFather
+- Deploys via systemd — see `deploy/DEPLOY.md`. Server `.env` needs only `TELEGRAM_BOT_TOKEN`.
+- Starts and connects to Telegram; **transcription itself is not yet confirmed end-to-end**
 
 ### Not Working / TODO ❌
 - `apps/web` — stub only (~23 lines), imports `@transcriber/core` but no server-side Gladia route yet
@@ -80,8 +83,9 @@ apps/
       capabilities/default.json
 
   web/              ← stub, Phase 2. No Gladia server route yet.
-  bot/              ← Telegraf. config/router/extract/pipeline/messages split so the
-                       routing and size-limit logic is unit-testable without network.
+  bot/              ← Telegraf. config/router/extract/pipeline/keystore/messages split
+                       so routing, size limits, and key storage are unit-testable
+                       without network. keystore.ts holds each user's own Gladia key.
 
 packages/
   core/             ← TranscriptionProvider interface, Gladia REST provider,
@@ -230,7 +234,8 @@ For social links: yt-dlp extracts audio to a temp file first, then the same flow
 
 1. **Verify** — test mini mode, the Settings key flow, and social URL extraction
    (YouTube/TikTok/VK/Instagram/Rutube) end-to-end; implemented but not confirmed in practice
-2. **Deploy the bot** — needs a token from @BotFather, then `deploy/DEPLOY.md`
+2. **Deploy the bot** — token is set locally; follow `deploy/DEPLOY.md`, then confirm
+   `/setkey` and a real transcription work end-to-end
 3. Confirm `.msi` installer runs cleanly on a fresh Windows machine
 4. Remaining error-handling UX — network loss mid-transcription (oversized and empty
    files are now rejected with a clear message)

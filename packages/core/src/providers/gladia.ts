@@ -185,3 +185,38 @@ export class GladiaProvider implements TranscriptionProvider {
 }
 
 export const createMarkdownFromResult = buildMarkdown;
+
+export type GladiaKeyVerdict = "valid" | "unverified";
+
+/**
+ * Checks whether Gladia accepts a key, without spending transcription quota.
+ *
+ * Only an explicit 401/403 is treated as a bad key. Any other failure resolves to
+ * `unverified`, so a Gladia outage or a changed endpoint never tells someone their
+ * working key is invalid.
+ *
+ * @throws when the key is empty or Gladia actively rejects it.
+ */
+export const verifyGladiaKey = async (
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<GladiaKeyVerdict> => {
+  const key = apiKey.trim();
+
+  if (!key) {
+    throw new Error("Enter an API key.");
+  }
+
+  const response = await fetchImpl(`${GLADIA_API_BASE}/v2/pre-recorded?limit=1`, {
+    method: "GET",
+    headers: {
+      "x-gladia-key": key
+    }
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Gladia rejected this API key.");
+  }
+
+  return response.ok ? "valid" : "unverified";
+};

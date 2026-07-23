@@ -58,26 +58,30 @@ export const loadEnvironment = () => {
 
 export interface BotConfig {
   telegramToken: string;
-  gladiaApiKey: string;
+  keystorePath: string;
 }
 
-/** Returns the config, or the list of variables that still need to be set. */
-export const readConfig = (): { ok: true; config: BotConfig } | { ok: false; missing: string[] } => {
+const DEFAULT_KEYSTORE_FILENAME = ".bot-keys.json";
+
+/**
+ * Returns the config, or the variables that still need to be set.
+ *
+ * Note there is no GLADIA_API_KEY here: every Telegram user supplies their own key
+ * through /setkey, so the server never holds a shared transcription key.
+ */
+export const readConfig = (
+  envFile?: string
+): { ok: true; config: BotConfig } | { ok: false; missing: string[] } => {
   const telegramToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  const gladiaApiKey = process.env.GLADIA_API_KEY?.trim();
-  const missing: string[] = [];
 
   if (!telegramToken) {
-    missing.push("TELEGRAM_BOT_TOKEN");
+    return { ok: false, missing: ["TELEGRAM_BOT_TOKEN"] };
   }
 
-  if (!gladiaApiKey) {
-    missing.push("GLADIA_API_KEY");
-  }
+  const configured = process.env.BOT_KEYSTORE_PATH?.trim();
+  // Defaults beside the .env, which is already the directory holding this deployment's secrets.
+  const keystorePath =
+    configured || join(envFile ? dirname(envFile) : process.cwd(), DEFAULT_KEYSTORE_FILENAME);
 
-  if (!telegramToken || !gladiaApiKey) {
-    return { ok: false, missing };
-  }
-
-  return { ok: true, config: { telegramToken, gladiaApiKey } };
+  return { ok: true, config: { telegramToken, keystorePath } };
 };

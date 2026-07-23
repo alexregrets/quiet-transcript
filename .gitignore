@@ -2,6 +2,10 @@
 .env.*
 !.env.example
 
+# Telegram users' own Gladia API keys — never commit these.
+.bot-keys.json
+.bot-keys.json.corrupt-*
+
 node_modules/
 .pnpm-store/
 dist/

@@ -7,8 +7,21 @@ export const pickLocale = (languageCode: string | undefined): BotLocale =>
 export const messages = {
   en: {
     start:
-      "Send me an audio or video file, a voice message, or a link (YouTube, TikTok, VK, Instagram, Rutube) and I will reply with a Markdown transcript.",
-    help: "Send audio, video, a voice message, or a link. Files up to 20 MB — that is Telegram's limit for bots.",
+      "Send me an audio or video file, a voice message, or a link (YouTube, TikTok, VK, Instagram, Rutube) and I will reply with a Markdown transcript.\n\nFirst, connect your own Gladia API key with /setkey — transcription runs on your key, so you keep your own free quota.",
+    help:
+      "Commands:\n/setkey <key> — connect your Gladia API key\n/deletekey — remove your stored key\n\nThen send audio, video, a voice message, or a link. Files up to 20 MB — that is Telegram's limit for bots.",
+    noKey:
+      "You need your own Gladia API key first.\n\n1. Get a free one at gladia.io (about 10 hours a month)\n2. Send it here as: /setkey your-key\n\nTranscription runs on your key, so nobody shares a quota.",
+    setKeyUsage: "Send the key with the command, like: /setkey your-key-here",
+    keyBadFormat: "That does not look like an API key. Copy it from gladia.io and try again.",
+    keySaved: "Key saved. Send me audio, a video, or a link.",
+    keyUnverified:
+      "Key saved, but Gladia did not confirm it just now. Try a transcription — if it fails, re-check the key.",
+    keyRejected: "Gladia rejected that key. Check you copied all of it from gladia.io.",
+    deleteMessageHint: "Now delete your message with the key — I cannot delete it for you.",
+    keyRemoved: "Your key is deleted. I no longer store anything for you.",
+    keyNotStored: "I do not have a key stored for you.",
+    checkingKey: "Checking the key…",
     queued: "Got it. Starting…",
     downloading: "Downloading from Telegram…",
     extracting: "Extracting audio from the link…",
@@ -24,8 +37,21 @@ export const messages = {
   },
   ru: {
     start:
-      "Пришлите аудио или видео, голосовое сообщение либо ссылку (YouTube, TikTok, VK, Instagram, Rutube) — я отвечу транскриптом в Markdown.",
-    help: "Пришлите аудио, видео, голосовое сообщение или ссылку. Файлы до 20 МБ — это ограничение Telegram для ботов.",
+      "Пришлите аудио или видео, голосовое сообщение либо ссылку (YouTube, TikTok, VK, Instagram, Rutube) — я отвечу транскриптом в Markdown.\n\nСначала подключите свой ключ Gladia через /setkey — распознавание идёт на вашем ключе, так что квота остаётся вашей.",
+    help:
+      "Команды:\n/setkey <ключ> — подключить ваш ключ Gladia\n/deletekey — удалить сохранённый ключ\n\nДальше присылайте аудио, видео, голосовое или ссылку. Файлы до 20 МБ — это ограничение Telegram для ботов.",
+    noKey:
+      "Сначала нужен ваш собственный ключ Gladia.\n\n1. Получите бесплатный на gladia.io (около 10 часов в месяц)\n2. Пришлите его сюда командой: /setkey ваш-ключ\n\nРаспознавание идёт на вашем ключе, так что общей квоты ни у кого нет.",
+    setKeyUsage: "Пришлите ключ вместе с командой, например: /setkey ваш-ключ",
+    keyBadFormat: "Это не похоже на API-ключ. Скопируйте его с gladia.io и попробуйте снова.",
+    keySaved: "Ключ сохранён. Присылайте аудио, видео или ссылку.",
+    keyUnverified:
+      "Ключ сохранён, но Gladia сейчас его не подтвердила. Попробуйте транскрибацию — если не выйдет, проверьте ключ.",
+    keyRejected: "Gladia отклонила этот ключ. Проверьте, что скопировали его целиком с gladia.io.",
+    deleteMessageHint: "Теперь удалите своё сообщение с ключом — я не могу сделать это за вас.",
+    keyRemoved: "Ваш ключ удалён. Я больше ничего о вас не храню.",
+    keyNotStored: "У меня нет сохранённого ключа для вас.",
+    checkingKey: "Проверяю ключ…",
     queued: "Принято. Начинаю…",
     downloading: "Скачиваю из Telegram…",
     extracting: "Извлекаю аудио по ссылке…",

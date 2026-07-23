@@ -1,8 +1,9 @@
-import type { TranscriptionSource } from "@transcriber/core";
+import { verifyGladiaKey, type TranscriptionSource } from "@transcriber/core";
 import { Telegraf, type Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { loadEnvironment, readConfig } from "./config";
 import { extractAudio } from "./extract";
+import { createKeyStore, isPlausibleKey } from "./keystore";
 import { formatDuration, messages, pickLocale, type BotLocale } from "./messages";
 import { createProvider, transcribeAudioBytes, transcribeDirectUrl, type TranscriptionOutput } from "./pipeline";
 import {
@@ -15,17 +16,18 @@ import {
 } from "./router";
 
 const envFile = loadEnvironment();
-const configResult = readConfig();
+const configResult = readConfig(envFile);
 
 if (!configResult.ok) {
   console.log(`Bot is not running. Set ${configResult.missing.join(" and ")}${envFile ? ` in ${envFile}` : ""}.`);
   process.exit(0);
 }
 
-const provider = createProvider(configResult.config.gladiaApiKey);
-const bot = new Telegraf(configResult.config.telegramToken);
+const { telegramToken, keystorePath } = configResult.config;
+const keystore = await createKeyStore(keystorePath);
+const bot = new Telegraf(telegramToken);
 
-/** One job per chat: transcription is slow, and parallel jobs would burn Gladia quota. */
+/** One job per chat: transcription is slow, and parallel jobs would waste the user's quota. */
 const busyChats = new Set<number>();
 
 interface Attachment {
@@ -48,6 +50,24 @@ const createProgress = async (ctx: Context, initial: string) => {
 
     await ctx.telegram.editMessageText(sent.chat.id, sent.message_id, undefined, text).catch(() => undefined);
   };
+};
+
+/** Returns the sender's own Gladia key, prompting them to add one when it is missing. */
+const resolveUserKey = async (ctx: Context) => {
+  const userId = ctx.from?.id;
+
+  if (userId === undefined) {
+    return undefined;
+  }
+
+  const key = keystore.get(userId);
+
+  if (!key) {
+    await ctx.reply(messages[localeOf(ctx)].noKey);
+    return undefined;
+  }
+
+  return key;
 };
 
 const downloadTelegramFile = async (ctx: Context, fileId: string) => {
@@ -104,8 +124,13 @@ const runJob = async (ctx: Context, job: (report: (text: string) => Promise<void
 const handleAttachment = async (ctx: Context, attachment: Attachment) => {
   const locale = localeOf(ctx);
   const t = messages[locale];
-  const sizeVerdict = checkTelegramFileSize(attachment.sizeBytes);
 
+  const apiKey = await resolveUserKey(ctx);
+  if (!apiKey) {
+    return;
+  }
+
+  const sizeVerdict = checkTelegramFileSize(attachment.sizeBytes);
   if (!sizeVerdict.ok) {
     await ctx.reply(sizeVerdict.reason === "empty" ? t.empty : t.tooLarge(formatBytes(TELEGRAM_MAX_FILE_BYTES)));
     return;
@@ -132,7 +157,7 @@ const handleAttachment = async (ctx: Context, attachment: Attachment) => {
       sizeBytes: bytes.byteLength
     };
 
-    const output = await transcribeAudioBytes(provider, {
+    const output = await transcribeAudioBytes(createProvider(apiKey), {
       bytes,
       filename: attachment.filename,
       mimeType: attachment.mimeType,
@@ -145,6 +170,48 @@ const handleAttachment = async (ctx: Context, attachment: Attachment) => {
 
 bot.start((ctx) => ctx.reply(messages[localeOf(ctx)].start));
 bot.help((ctx) => ctx.reply(messages[localeOf(ctx)].help));
+
+bot.command("setkey", async (ctx) => {
+  const t = messages[localeOf(ctx)];
+  const userId = ctx.from.id;
+  const candidate = ctx.message.text.split(/\s+/).slice(1).join(" ").trim();
+
+  // Best effort: bots usually cannot delete a user's own message in a private chat,
+  // so the user is told to remove it themselves rather than assuming it is gone.
+  await ctx.deleteMessage().catch(() => undefined);
+
+  if (!candidate) {
+    await ctx.reply(t.setKeyUsage);
+    return;
+  }
+
+  if (!isPlausibleKey(candidate)) {
+    await ctx.reply(t.keyBadFormat);
+    return;
+  }
+
+  await ctx.reply(t.checkingKey);
+
+  let verdict: "valid" | "unverified";
+
+  try {
+    verdict = await verifyGladiaKey(candidate);
+  } catch {
+    // verifyGladiaKey only throws when Gladia actively refuses the key.
+    await ctx.reply(t.keyRejected);
+    return;
+  }
+
+  await keystore.set(userId, candidate);
+  await ctx.reply(verdict === "valid" ? t.keySaved : t.keyUnverified);
+  await ctx.reply(t.deleteMessageHint);
+});
+
+bot.command("deletekey", async (ctx) => {
+  const t = messages[localeOf(ctx)];
+  const removed = await keystore.remove(ctx.from.id);
+  await ctx.reply(removed ? t.keyRemoved : t.keyNotStored);
+});
 
 bot.on(message("voice"), (ctx) =>
   handleAttachment(ctx, {
@@ -202,6 +269,13 @@ bot.on(message("document"), async (ctx) => {
 bot.on(message("text"), async (ctx) => {
   const locale = localeOf(ctx);
   const t = messages[locale];
+
+  // Unrecognised commands should not be read as links.
+  if (ctx.message.text.startsWith("/")) {
+    await ctx.reply(t.help);
+    return;
+  }
+
   const request = classifyText(ctx.message.text);
 
   if (request.kind === "invalid-url") {
@@ -209,7 +283,14 @@ bot.on(message("text"), async (ctx) => {
     return;
   }
 
+  const apiKey = await resolveUserKey(ctx);
+  if (!apiKey) {
+    return;
+  }
+
   await runJob(ctx, async (report) => {
+    const provider = createProvider(apiKey);
+
     if (!request.needsExtraction) {
       await report(t.transcribing);
       await deliver(ctx, locale, await transcribeDirectUrl(provider, request.url));
@@ -241,7 +322,9 @@ bot.on(message("text"), async (ctx) => {
   });
 });
 
-void bot.launch(() => console.log(`Bot started${envFile ? ` (env: ${envFile})` : ""}.`));
+void bot.launch(() =>
+  console.log(`Bot started. Keys for ${keystore.size()} user(s) loaded from ${keystorePath}.`)
+);
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
