@@ -41,12 +41,25 @@ pnpm --filter @transcriber/desktop tauri:build
 pnpm lint
 pnpm typecheck
 pnpm test
+
+cd apps/desktop/src-tauri && cargo test
+cd apps/desktop/src-tauri && cargo clippy --all-targets -- -D warnings
 ```
+
+CI (`.github/workflows/ci.yml`) runs all of the above. Both must be green before a task
+is done — the Rust backend has its own tests and is not covered by `pnpm test`.
 
 ## Coding Conventions
 
 - Use TypeScript for app and shared package code.
 - Keep shared business logic in `packages/core`.
+- Desktop transcription progress comes from Rust `transcription-progress` events. Never
+  reintroduce a timer that guesses at it.
+- Rust commands fail with `{ code, detail }`; the UI translates `code` through
+  `errorCopy` in `apps/desktop/src/lib/i18n.ts`. A new failure mode needs both.
+- Never pass file bytes through `invoke` — hand Rust a path.
+- yt-dlp must not use `--extract-audio`/`--audio-format`: that pulls in ffmpeg, which the
+  desktop app does not bundle.
 - Keep React UI minimal, soft, and precise.
 - Avoid large abstractions until a second provider or client actually needs them.
 - Prefer focused tests around core formatting, validation, and provider mapping.
@@ -76,4 +89,4 @@ pnpm test
 - Supabase schema supports profiles, consent, and transcription records.
 - Environment variables are documented.
 - README setup is current.
-- TypeScript builds without errors.
+- TypeScript builds without errors, and `cargo test` plus clippy pass.
