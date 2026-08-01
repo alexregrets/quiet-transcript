@@ -23,7 +23,9 @@ fi
 log "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# ffmpeg is required by yt-dlp's --extract-audio.
+# ffmpeg is not required for extraction (yt-dlp downloads an existing audio stream and
+# nothing is re-encoded), but it lets yt-dlp merge or repair the odd stream it cannot
+# hand over as-is.
 apt-get install -y -qq --no-install-recommends ca-certificates curl git ffmpeg
 
 log "Installing Node.js"
