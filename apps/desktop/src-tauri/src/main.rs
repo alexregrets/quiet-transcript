@@ -7,7 +7,7 @@ use std::{
     env,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{path::BaseDirectory, Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -15,14 +15,82 @@ use tokio::time::sleep;
 use url::Url;
 
 static YTDLP_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 const GLADIA_API_BASE: &str = "https://api.gladia.io";
-const MAX_POLLS: usize = 120;
 /// Files are buffered in memory before upload, so refuse anything that would risk
 /// exhausting RAM. Surfaced to the user as a clear message instead of a crash.
 const MAX_UPLOAD_BYTES: u64 = 500 * 1024 * 1024;
+const POLL_INTERVAL: Duration = Duration::from_millis(2500);
+/// Gladia needs roughly a tenth of the audio duration, so an hour of polling covers
+/// files far longer than anything the 500 MB upload limit allows.
+const MAX_POLL_DURATION: Duration = Duration::from_secs(60 * 60);
+/// A dropped connection mid-transcription used to lose the whole job. Tolerate a run of
+/// failures — the job keeps running on Gladia's side regardless of our polling.
+const MAX_CONSECUTIVE_POLL_FAILURES: usize = 8;
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const EXTRACTION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Hides the console window yt-dlp would otherwise flash on every social link.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 static ENV_REPORT: OnceLock<EnvLoadReport> = OnceLock::new();
 static PENDING_AUTH_DEEP_LINKS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+/// A failure the frontend can localize.
+///
+/// `code` is a stable identifier the UI maps to a translated sentence; `detail` carries
+/// the raw technical text (Gladia body, yt-dlp stderr) for the log line under it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppError {
+    code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+impl AppError {
+    fn new(code: &'static str) -> Self {
+        Self { code, detail: None }
+    }
+
+    fn with(code: &'static str, detail: impl Into<String>) -> Self {
+        let detail = detail.into();
+        let trimmed = detail.trim();
+
+        Self {
+            code,
+            detail: (!trimmed.is_empty()).then(|| truncate_detail(trimmed)),
+        }
+    }
+
+    /// Transient failures are worth another poll; everything else ends the job.
+    fn is_transient(&self) -> bool {
+        matches!(self.code, "network" | "gladia_transient")
+    }
+}
+
+/// Keeps a runaway error body (Gladia can return HTML) out of the UI and the log.
+fn truncate_detail(value: &str) -> String {
+    const LIMIT: usize = 300;
+
+    if value.chars().count() <= LIMIT {
+        return value.to_string();
+    }
+
+    let head: String = value.chars().take(LIMIT).collect();
+    format!("{head}…")
+}
+
+type CommandResult<T> = Result<T, AppError>;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProgressPayload {
+    stage: &'static str,
+}
 
 #[derive(Debug, Deserialize)]
 struct UploadResponse {
@@ -39,6 +107,7 @@ struct JobResponse {
 struct GladiaPollResponse {
     id: Option<String>,
     status: Option<String>,
+    error_code: Option<serde_json::Value>,
     result: Option<GladiaResult>,
 }
 
@@ -145,73 +214,49 @@ struct AuthDeepLinkPayload {
     url: String,
 }
 
-#[tauri::command]
-async fn transcribe_file(
-    filename: String,
-    mime_type: Option<String>,
-    bytes: Vec<u8>,
-    api_key: Option<String>,
-) -> Result<TranscriptPayload, String> {
-    validate_filename(&filename)?;
-    validate_media_extension(&filename)?;
-
-    validate_upload_size(bytes.len() as u64)?;
-
-    let api_key = resolve_api_key(api_key)?;
-    let client = reqwest::Client::new();
-    let size_bytes = bytes.len();
-    let audio_url = upload_file(&client, &api_key, &filename, mime_type.as_deref(), bytes).await?;
-    let payload = transcribe_audio_url(
-        &client,
-        &api_key,
-        &audio_url,
-        TranscriptionSource::File {
-            filename: filename.clone(),
-            mime_type,
-            size_bytes,
-        },
-        title_from_filename(&filename),
-    )
-    .await?;
-
-    Ok(payload)
-}
-
+/// Transcribes a file the OS handed us a path to — the native picker or a drag-and-drop.
+///
+/// There is deliberately no byte-array command: `invoke` serializes bytes as a JSON array
+/// of numbers, so a large recording would be copied several times over before Rust could
+/// touch it. Reading from the path keeps one copy.
 #[tauri::command]
 async fn transcribe_file_path(
+    app: tauri::AppHandle,
     path: String,
     api_key: Option<String>,
-) -> Result<TranscriptPayload, String> {
+) -> CommandResult<TranscriptPayload> {
     let path = PathBuf::from(path);
     if !path.is_file() {
-        return Err("Dropped path is not a file.".to_string());
+        return Err(AppError::new("not_a_file"));
     }
 
-    // Security: only the OS-provided drag/drop path is read, and only after validating it is a supported media file.
+    // Security: only an OS-provided path (drag/drop or the native picker) is read, and
+    // only after validating it is a supported media file.
     let filename = path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| "Invalid dropped filename.".to_string())?
+        .ok_or_else(|| AppError::new("invalid_filename"))?
         .to_string();
 
     validate_filename(&filename)?;
-    validate_drag_drop_extension(&filename)?;
+    validate_media_extension(&filename)?;
 
     // Check size from metadata first so an oversized file is never read into memory.
     let size_on_disk = std::fs::metadata(&path)
-        .map_err(|error| format!("Could not inspect dropped file: {error}"))?
+        .map_err(|error| AppError::with("file_read_failed", error.to_string()))?
         .len();
     validate_upload_size(size_on_disk)?;
 
-    let bytes = std::fs::read(&path).map_err(|error| format!("Could not read dropped file: {error}"))?;
+    emit_progress(&app, "uploading");
+    let bytes =
+        std::fs::read(&path).map_err(|error| AppError::with("file_read_failed", error.to_string()))?;
     let mime_type = mime_type_from_filename(&filename).map(str::to_string);
     let api_key = resolve_api_key(api_key)?;
-    let client = reqwest::Client::new();
     let size_bytes = bytes.len();
-    let audio_url = upload_file(&client, &api_key, &filename, mime_type.as_deref(), bytes).await?;
+    let audio_url = upload_file(&api_key, &filename, mime_type.as_deref(), bytes).await?;
 
     transcribe_audio_url(
-        &client,
+        &app,
         &api_key,
         &audio_url,
         TranscriptionSource::File {
@@ -229,15 +274,15 @@ async fn transcribe_url(
     app: tauri::AppHandle,
     url: String,
     api_key: Option<String>,
-) -> Result<TranscriptPayload, String> {
+) -> CommandResult<TranscriptPayload> {
     validate_url(&url)?;
 
     let api_key = resolve_api_key(api_key)?;
-    let client = reqwest::Client::new();
 
     if is_direct_media_url(&url) {
+        // Gladia fetches direct media itself, so there is nothing to upload.
         return transcribe_audio_url(
-            &client,
+            &app,
             &api_key,
             &url,
             TranscriptionSource::Url { url: url.clone() },
@@ -246,54 +291,15 @@ async fn transcribe_url(
         .await;
     }
 
-    // Non-direct URL: extract audio via yt-dlp
-    let ytdlp = resolve_ytdlp_path(&app)
-        .ok_or_else(|| "yt-dlp is missing from this installation.".to_string())?;
-    let temp_dir = std::env::temp_dir();
-    let out_template = temp_dir.join("qt_%(id)s.%(ext)s");
-    let out_template_str = out_template.to_string_lossy().to_string();
+    emit_progress(&app, "extracting");
+    let extracted = extract_audio(&app, &url).await?;
 
-    let output = std::process::Command::new(&ytdlp)
-        .args([
-            "--extract-audio",
-            "--audio-format", "m4a",
-            "--audio-quality", "0",
-            "--no-playlist",
-            "--no-warnings",
-            "--print", "after_move:filepath",
-            "-o", &out_template_str,
-            &url,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run yt-dlp: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("yt-dlp failed: {stderr}"));
-    }
-
-    let extracted_path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let extracted_path = PathBuf::from(&extracted_path_str);
-
-    if !extracted_path.is_file() {
-        return Err(format!("yt-dlp did not produce a file at: {extracted_path_str}"));
-    }
-
-    let filename = extracted_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("extracted.m4a")
-        .to_string();
-
-    let bytes = std::fs::read(&extracted_path)
-        .map_err(|e| format!("Could not read extracted audio: {e}"))?;
-    let _ = std::fs::remove_file(&extracted_path);
-
-    validate_upload_size(bytes.len() as u64)?;
-    let audio_url = upload_file(&client, &api_key, &filename, Some("audio/mp4"), bytes).await?;
+    emit_progress(&app, "uploading");
+    let mime_type = mime_type_from_filename(&extracted.filename).unwrap_or("audio/mp4");
+    let audio_url = upload_file(&api_key, &extracted.filename, Some(mime_type), extracted.bytes).await?;
 
     transcribe_audio_url(
-        &client,
+        &app,
         &api_key,
         &audio_url,
         TranscriptionSource::Url { url: url.clone() },
@@ -321,30 +327,48 @@ fn pending_auth_deep_links() -> Vec<String> {
 /// resolves to `unverified` so a Gladia outage or an endpoint change never tells the
 /// user their key is invalid when it is not.
 #[tauri::command]
-async fn verify_gladia_key(api_key: String) -> Result<String, String> {
+async fn verify_gladia_key(api_key: String) -> CommandResult<String> {
     let key = api_key.trim();
     if key.is_empty() {
-        return Err("Enter an API key.".to_string());
+        return Err(AppError::new("no_api_key"));
     }
 
-    let response = reqwest::Client::new()
+    let response = http_client()
         .get(format!("{GLADIA_API_BASE}/v2/pre-recorded"))
         .query(&[("limit", "1")])
         .header("x-gladia-key", key)
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|error| format!("Could not reach Gladia: {error}"))?;
+        .map_err(|error| AppError::with("network", error.to_string()))?;
 
     match response.status().as_u16() {
-        401 | 403 => Err("Gladia rejected this API key.".to_string()),
+        401 | 403 => Err(AppError::new("gladia_auth")),
         status if (200..300).contains(&status) => Ok("valid".to_string()),
         _ => Ok("unverified".to_string()),
     }
 }
 
+/// One client for the whole process: connection reuse plus timeouts that keep a stalled
+/// socket from hanging a transcription forever.
+fn http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(20))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+fn emit_progress(app: &tauri::AppHandle, stage: &'static str) {
+    if app.emit("transcription-progress", ProgressPayload { stage }).is_err() {
+        eprintln!("[progress] failed to emit stage {stage}");
+    }
+}
+
 /// A key supplied from the Settings screen wins; the `.env` value is the dev fallback.
-fn resolve_api_key(user_key: Option<String>) -> Result<String, String> {
+fn resolve_api_key(user_key: Option<String>) -> CommandResult<String> {
     if let Some(key) = user_key {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
@@ -355,10 +379,9 @@ fn resolve_api_key(user_key: Option<String>) -> Result<String, String> {
     gladia_key()
 }
 
-fn gladia_key() -> Result<String, String> {
+fn gladia_key() -> CommandResult<String> {
     ensure_env_loaded();
-    env::var("GLADIA_API_KEY")
-        .map_err(|_| "No Gladia API key. Add one in Settings, or set GLADIA_API_KEY.".to_string())
+    env::var("GLADIA_API_KEY").map_err(|_| AppError::new("no_api_key"))
 }
 
 fn ensure_env_loaded() -> &'static EnvLoadReport {
@@ -464,38 +487,38 @@ fn path_to_string(path: &PathBuf) -> String {
     path.display().to_string()
 }
 
-fn validate_filename(filename: &str) -> Result<(), String> {
+fn validate_filename(filename: &str) -> CommandResult<()> {
     // Security: only the browser-selected filename is used, never a local path from untrusted UI input.
     if filename.contains('/') || filename.contains('\\') || filename.trim().is_empty() {
-        return Err("Invalid filename.".to_string());
+        return Err(AppError::new("invalid_filename"));
     }
     Ok(())
 }
 
-fn validate_media_extension(filename: &str) -> Result<(), String> {
-    let allowed = [
-        "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv",
-    ];
-    let extension = filename
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+fn validate_media_extension(filename: &str) -> CommandResult<()> {
+    let extension = media_extension(filename);
 
-    if allowed.contains(&extension.as_str()) {
+    if SUPPORTED_MEDIA_EXTENSIONS.contains(&extension.as_str()) {
         Ok(())
     } else {
-        Err("Unsupported media file extension.".to_string())
+        Err(AppError::with("unsupported_extension", extension))
     }
 }
 
-fn validate_drag_drop_extension(filename: &str) -> Result<(), String> {
-    validate_media_extension(filename).map_err(|_| "Unsupported dropped media file extension.".to_string())
+const SUPPORTED_MEDIA_EXTENSIONS: [&str; 11] = [
+    "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv",
+];
+
+fn media_extension(filename: &str) -> String {
+    filename
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 fn mime_type_from_filename(filename: &str) -> Option<&'static str> {
-    let extension = filename.rsplit('.').next()?.to_ascii_lowercase();
-    match extension.as_str() {
+    match media_extension(filename).as_str() {
         "mp3" => Some("audio/mpeg"),
         "wav" => Some("audio/wav"),
         "m4a" => Some("audio/mp4"),
@@ -511,16 +534,19 @@ fn mime_type_from_filename(filename: &str) -> Option<&'static str> {
     }
 }
 
-fn validate_upload_size(size_bytes: u64) -> Result<(), String> {
+fn validate_upload_size(size_bytes: u64) -> CommandResult<()> {
     if size_bytes == 0 {
-        return Err("That file is empty.".to_string());
+        return Err(AppError::new("file_empty"));
     }
 
     if size_bytes > MAX_UPLOAD_BYTES {
-        return Err(format!(
-            "File is {} and the limit is {}. Trim it or split it into parts.",
-            format_bytes(size_bytes),
-            format_bytes(MAX_UPLOAD_BYTES)
+        return Err(AppError::with(
+            "file_too_large",
+            format!(
+                "{} / {}",
+                format_bytes(size_bytes),
+                format_bytes(MAX_UPLOAD_BYTES)
+            ),
         ));
     }
 
@@ -536,24 +562,25 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn validate_url(value: &str) -> Result<(), String> {
-    let parsed = Url::parse(value).map_err(|_| "Enter a valid URL.".to_string())?;
+fn validate_url(value: &str) -> CommandResult<()> {
+    let parsed = Url::parse(value).map_err(|_| AppError::new("invalid_url"))?;
     if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return Err("Only http and https URLs are supported.".to_string());
+        return Err(AppError::new("unsupported_scheme"));
     }
     Ok(())
 }
 
 fn is_direct_media_url(value: &str) -> bool {
-    let extensions = ["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv"];
     Url::parse(value)
         .ok()
         .and_then(|url| {
             url.path_segments()
-                .and_then(|segs| segs.last().map(str::to_lowercase))
+                .and_then(|segments| segments.last().map(str::to_lowercase))
         })
         .map(|last| {
-            extensions.iter().any(|ext| last.ends_with(&format!(".{ext}")))
+            SUPPORTED_MEDIA_EXTENSIONS
+                .iter()
+                .any(|extension| last.ends_with(&format!(".{extension}")))
         })
         .unwrap_or(false)
 }
@@ -584,6 +611,132 @@ fn resolve_ytdlp_path(app: &tauri::AppHandle) -> Option<PathBuf> {
             dev_candidate.is_file().then_some(dev_candidate)
         })
         .clone()
+}
+
+struct ExtractedAudio {
+    filename: String,
+    bytes: Vec<u8>,
+}
+
+/// Pulls the audio track out of a page URL with yt-dlp.
+///
+/// Deliberately downloads an existing audio stream (`-f bestaudio`) instead of asking for
+/// `--extract-audio --audio-format m4a`: the latter runs yt-dlp's FFmpeg post-processor,
+/// and we do not ship ffmpeg, so on a clean machine every social link would fail. Gladia
+/// accepts the container formats YouTube and friends already serve.
+async fn extract_audio(app: &tauri::AppHandle, url: &str) -> CommandResult<ExtractedAudio> {
+    let ytdlp = resolve_ytdlp_path(app).ok_or_else(|| AppError::new("ytdlp_missing"))?;
+    let workdir = create_extraction_dir()?;
+    let out_template = workdir.join("%(id)s.%(ext)s");
+
+    let mut command = tokio::process::Command::new(&ytdlp);
+    command
+        .args([
+            "-f",
+            "bestaudio[ext=m4a]/bestaudio/best",
+            "--no-playlist",
+            "--no-warnings",
+            "--no-progress",
+            "--no-update",
+            "--socket-timeout",
+            "30",
+            "--retries",
+            "3",
+            "--max-filesize",
+            "500m",
+            "--print",
+            "after_move:filepath",
+            "-o",
+            &out_template.to_string_lossy(),
+            url,
+        ])
+        .kill_on_drop(true);
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let result = tokio::time::timeout(EXTRACTION_TIMEOUT, command.output()).await;
+
+    let output = match result {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            cleanup_extraction_dir(&workdir);
+            return Err(AppError::with("ytdlp_failed", error.to_string()));
+        }
+        Err(_) => {
+            cleanup_extraction_dir(&workdir);
+            return Err(AppError::new("ytdlp_timeout"));
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        cleanup_extraction_dir(&workdir);
+        return Err(AppError::with("ytdlp_failed", last_line(&stderr)));
+    }
+
+    let printed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let extracted_path = printed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .next_back()
+        .map(PathBuf::from);
+
+    let Some(extracted_path) = extracted_path.filter(|path| path.is_file()) else {
+        cleanup_extraction_dir(&workdir);
+        // yt-dlp exits 0 when it skips a file for exceeding --max-filesize.
+        return Err(AppError::new("ytdlp_no_audio"));
+    };
+
+    let filename = extracted_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("extracted.m4a")
+        .to_string();
+
+    let bytes = std::fs::read(&extracted_path)
+        .map_err(|error| AppError::with("file_read_failed", error.to_string()));
+    cleanup_extraction_dir(&workdir);
+    let bytes = bytes?;
+
+    validate_upload_size(bytes.len() as u64)?;
+
+    Ok(ExtractedAudio { filename, bytes })
+}
+
+/// A private directory per extraction, so two links cannot collide in the shared temp dir
+/// and a partial download never leaks into the next run.
+fn create_extraction_dir() -> CommandResult<PathBuf> {
+    let unique = format!(
+        "quiet-transcript-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or_default()
+    );
+    let path = env::temp_dir().join(unique);
+
+    std::fs::create_dir_all(&path)
+        .map_err(|error| AppError::with("ytdlp_failed", error.to_string()))?;
+
+    Ok(path)
+}
+
+fn cleanup_extraction_dir(path: &Path) {
+    let _ = std::fs::remove_dir_all(path);
+}
+
+/// yt-dlp explains itself on the last line of stderr; the rest is noise.
+fn last_line(value: &str) -> String {
+    value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .next_back()
+        .unwrap_or(value)
+        .to_string()
 }
 
 fn pending_auth_links() -> &'static Mutex<Vec<String>> {
@@ -621,42 +774,47 @@ fn handle_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, value: &s
 }
 
 async fn upload_file(
-    client: &reqwest::Client,
     api_key: &str,
     filename: &str,
     mime_type: Option<&str>,
     bytes: Vec<u8>,
-) -> Result<String, String> {
+) -> CommandResult<String> {
     let part = Part::bytes(bytes)
         .file_name(filename.to_string())
         .mime_str(mime_type.unwrap_or("application/octet-stream"))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| AppError::with("gladia_failed", error.to_string()))?;
     let form = Form::new().part("audio", part);
-    let response = client
+    let response = http_client()
         .post(format!("{GLADIA_API_BASE}/v2/upload"))
         .header("x-gladia-key", api_key)
+        .timeout(UPLOAD_TIMEOUT)
         .multipart(form)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| AppError::with("network", error.to_string()))?;
 
-    ensure_ok(response, "Gladia upload")
+    ensure_ok(response)
         .await?
         .json::<UploadResponse>()
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| AppError::with("gladia_failed", error.to_string()))
         .map(|payload| payload.audio_url)
 }
 
 async fn transcribe_audio_url(
-    client: &reqwest::Client,
+    app: &tauri::AppHandle,
     api_key: &str,
     audio_url: &str,
     source: TranscriptionSource,
     title: String,
-) -> Result<TranscriptPayload, String> {
-    let job = create_job(client, api_key, audio_url).await?;
-    let result = poll_job(client, api_key, &job).await?;
+) -> CommandResult<TranscriptPayload> {
+    emit_progress(app, "sending");
+    let job = create_job(api_key, audio_url).await?;
+
+    emit_progress(app, "transcribing");
+    let result = poll_job(api_key, &job).await?;
+
+    emit_progress(app, "building");
     let transcription = result
         .result
         .as_ref()
@@ -689,21 +847,20 @@ async fn transcribe_audio_url(
     };
     let markdown = build_markdown(&transcript);
 
+    emit_progress(app, "done");
+
     Ok(TranscriptPayload {
         result: transcript,
         markdown,
     })
 }
 
-async fn create_job(
-    client: &reqwest::Client,
-    api_key: &str,
-    audio_url: &str,
-) -> Result<JobResponse, String> {
-    let response = client
+async fn create_job(api_key: &str, audio_url: &str) -> CommandResult<JobResponse> {
+    let response = http_client()
         .post(format!("{GLADIA_API_BASE}/v2/pre-recorded"))
         .header("Content-Type", "application/json")
         .header("x-gladia-key", api_key)
+        .timeout(REQUEST_TIMEOUT)
         .json(&serde_json::json!({
             "audio_url": audio_url,
             "language_config": {
@@ -715,56 +872,91 @@ async fn create_job(
         }))
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| AppError::with("network", error.to_string()))?;
 
-    ensure_ok(response, "Gladia job creation")
+    ensure_ok(response)
         .await?
         .json::<JobResponse>()
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| AppError::with("gladia_failed", error.to_string()))
 }
 
-async fn poll_job(
-    client: &reqwest::Client,
-    api_key: &str,
-    job: &JobResponse,
-) -> Result<GladiaPollResponse, String> {
+async fn poll_job(api_key: &str, job: &JobResponse) -> CommandResult<GladiaPollResponse> {
     let result_url = job
         .result_url
         .clone()
         .unwrap_or_else(|| format!("{GLADIA_API_BASE}/v2/pre-recorded/{}", job.id));
+    let started = Instant::now();
+    let mut consecutive_failures = 0usize;
 
-    for _ in 0..MAX_POLLS {
-        let response = client
-            .get(&result_url)
-            .header("x-gladia-key", api_key)
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
-        let payload = ensure_ok(response, "Gladia polling")
-            .await?
-            .json::<GladiaPollResponse>()
-            .await
-            .map_err(|error| error.to_string())?;
+    while started.elapsed() < MAX_POLL_DURATION {
+        match poll_once(api_key, &result_url).await {
+            Ok(payload) => {
+                consecutive_failures = 0;
 
-        match payload.status.as_deref() {
-            Some("done") => return Ok(payload),
-            Some("error") => return Err("Gladia transcription failed.".to_string()),
-            _ => sleep(Duration::from_millis(2500)).await,
+                match payload.status.as_deref() {
+                    Some("done") => return Ok(payload),
+                    Some("error") => {
+                        let detail = payload
+                            .error_code
+                            .as_ref()
+                            .map(|value| value.to_string())
+                            .unwrap_or_default();
+                        return Err(AppError::with("gladia_failed", detail));
+                    }
+                    _ => {}
+                }
+            }
+            // The job keeps running on Gladia's side, so a dropped connection is worth
+            // retrying rather than losing the whole transcription.
+            Err(error) if error.is_transient() => {
+                consecutive_failures += 1;
+
+                if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
         }
+
+        sleep(POLL_INTERVAL).await;
     }
 
-    Err("Gladia transcription timed out.".to_string())
+    Err(AppError::new("gladia_timeout"))
 }
 
-async fn ensure_ok(response: reqwest::Response, label: &str) -> Result<reqwest::Response, String> {
+async fn poll_once(api_key: &str, result_url: &str) -> CommandResult<GladiaPollResponse> {
+    let response = http_client()
+        .get(result_url)
+        .header("x-gladia-key", api_key)
+        .timeout(REQUEST_TIMEOUT)
+        .send()
+        .await
+        .map_err(|error| AppError::with("network", error.to_string()))?;
+
+    ensure_ok(response)
+        .await?
+        .json::<GladiaPollResponse>()
+        .await
+        .map_err(|error| AppError::with("network", error.to_string()))
+}
+
+async fn ensure_ok(response: reqwest::Response) -> CommandResult<reqwest::Response> {
     if response.status().is_success() {
         return Ok(response);
     }
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
-    Err(format!("{label} failed with {status}: {body}"))
+    let detail = format!("{status}: {body}");
+
+    Err(match status.as_u16() {
+        401 | 403 => AppError::with("gladia_auth", detail),
+        402 => AppError::with("gladia_quota", detail),
+        408 | 425 | 429 => AppError::with("gladia_transient", detail),
+        status if (500..600).contains(&status) => AppError::with("gladia_transient", detail),
+        _ => AppError::with("gladia_failed", detail),
+    })
 }
 
 fn map_segments(transcription: Option<&GladiaTranscription>) -> Option<Vec<TranscriptSegment>> {
@@ -930,8 +1122,6 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let _ = app.get_webview_window("main");
-
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
             app.deep_link().register_all()?;
 
@@ -952,7 +1142,6 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            transcribe_file,
             transcribe_file_path,
             transcribe_url,
             verify_gladia_key,
@@ -961,4 +1150,171 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_result() -> TranscriptionResult {
+        TranscriptionResult {
+            id: Some("job-1".to_string()),
+            title: "Interview".to_string(),
+            source: TranscriptionSource::File {
+                filename: "interview.mp3".to_string(),
+                mime_type: Some("audio/mpeg".to_string()),
+                size_bytes: 1024,
+            },
+            language: Some("en".to_string()),
+            duration_seconds: Some(84.0),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            text: "Hello there.".to_string(),
+            segments: Some(vec![TranscriptSegment {
+                start_seconds: Some(1.2),
+                end_seconds: Some(3.4),
+                speaker: Some("Speaker 0".to_string()),
+                text: "Hello there.".to_string(),
+            }]),
+            provider: "gladia".to_string(),
+        }
+    }
+
+    #[test]
+    fn rejects_filenames_with_path_separators() {
+        assert!(validate_filename("clip.mp3").is_ok());
+        assert!(validate_filename("../secrets.mp3").is_err());
+        assert!(validate_filename("dir\\clip.mp3").is_err());
+        assert!(validate_filename("   ").is_err());
+    }
+
+    #[test]
+    fn accepts_every_supported_extension() {
+        for extension in SUPPORTED_MEDIA_EXTENSIONS {
+            assert!(
+                validate_media_extension(&format!("clip.{extension}")).is_ok(),
+                "{extension} should be accepted"
+            );
+        }
+
+        assert!(validate_media_extension("notes.txt").is_err());
+        assert!(validate_media_extension("clip.MP3").is_ok());
+    }
+
+    #[test]
+    fn upload_size_rejects_empty_and_oversized_files() {
+        assert!(validate_upload_size(1).is_ok());
+        assert_eq!(validate_upload_size(0).unwrap_err().code, "file_empty");
+
+        let error = validate_upload_size(MAX_UPLOAD_BYTES + 1).unwrap_err();
+        assert_eq!(error.code, "file_too_large");
+        assert!(error.detail.is_some_and(|detail| detail.contains("500 MB")));
+    }
+
+    #[test]
+    fn only_http_urls_are_accepted() {
+        assert!(validate_url("https://example.com/a.mp3").is_ok());
+        assert_eq!(
+            validate_url("file:///etc/passwd").unwrap_err().code,
+            "unsupported_scheme"
+        );
+        assert_eq!(validate_url("not a url").unwrap_err().code, "invalid_url");
+    }
+
+    #[test]
+    fn direct_media_detection_ignores_query_strings() {
+        assert!(is_direct_media_url("https://example.com/audio.mp3"));
+        assert!(is_direct_media_url("https://example.com/a/b/CLIP.M4A"));
+        assert!(!is_direct_media_url("https://youtube.com/watch?v=x.mp3"));
+        assert!(!is_direct_media_url("https://example.com/page"));
+    }
+
+    #[test]
+    fn mime_types_cover_supported_extensions() {
+        for extension in SUPPORTED_MEDIA_EXTENSIONS {
+            assert!(
+                mime_type_from_filename(&format!("clip.{extension}")).is_some(),
+                "{extension} should map to a mime type"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitizes_titles_for_filesystem_use() {
+        assert_eq!(sanitize_filename("a/b:c*d"), "a-b-c-d");
+        assert_eq!(sanitize_filename("   "), "transcript");
+        assert_eq!(sanitize_filename(&"x".repeat(200)).chars().count(), 120);
+    }
+
+    #[test]
+    fn derives_title_from_url() {
+        assert_eq!(title_from_url("https://example.com/talk.mp3"), "talk.mp3");
+        assert_eq!(title_from_url("https://example.com/"), "example.com");
+    }
+
+    #[test]
+    fn formats_duration_and_timestamps() {
+        assert_eq!(format_duration(84.0), "1m 24s");
+        assert_eq!(format_duration(3725.0), "1h 2m 5s");
+        assert_eq!(format_timestamp(75.9), "[01:15]");
+        assert_eq!(format_timestamp(-5.0), "[00:00]");
+    }
+
+    /// The Markdown shape is mirrored in packages/core/src/markdown.ts; a drift here is a
+    /// drift between the desktop app and the bot.
+    #[test]
+    fn markdown_matches_the_shared_format() {
+        let markdown = build_markdown(&sample_result());
+
+        assert!(markdown.starts_with("# Interview\n"));
+        assert!(markdown.contains("| Source | interview.mp3 |"));
+        assert!(markdown.contains("| Duration | 1m 24s |"));
+        assert!(markdown.contains("## Transcript\n\nHello there."));
+        assert!(markdown.contains("- [00:01] **Speaker 0:** Hello there."));
+    }
+
+    #[test]
+    fn markdown_marks_an_empty_transcript() {
+        let mut result = sample_result();
+        result.text = "   ".to_string();
+        result.segments = None;
+
+        let markdown = build_markdown(&result);
+
+        assert!(markdown.contains("_No transcript text returned._"));
+        assert!(!markdown.contains("## Timestamps"));
+    }
+
+    #[test]
+    fn recognises_only_the_auth_deep_link() {
+        assert!(is_auth_deep_link("quiet-transcript://auth?code=1"));
+        assert!(!is_auth_deep_link("quiet-transcript://other"));
+        assert!(!is_auth_deep_link("https://example.com/auth"));
+    }
+
+    #[test]
+    fn transient_errors_are_worth_retrying() {
+        assert!(AppError::new("network").is_transient());
+        assert!(AppError::new("gladia_transient").is_transient());
+        assert!(!AppError::new("gladia_auth").is_transient());
+    }
+
+    #[test]
+    fn error_detail_is_truncated() {
+        let error = AppError::with("gladia_failed", "x".repeat(500));
+        let detail = error.detail.expect("detail");
+
+        assert_eq!(detail.chars().count(), 301);
+        assert!(detail.ends_with('…'));
+    }
+
+    #[test]
+    fn empty_detail_is_dropped() {
+        assert!(AppError::with("network", "   ").detail.is_none());
+    }
+
+    #[test]
+    fn keeps_the_last_meaningful_stderr_line() {
+        assert_eq!(last_line("warning\nERROR: nope\n\n"), "ERROR: nope");
+        assert_eq!(last_line(""), "");
+    }
 }

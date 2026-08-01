@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { describeUrlSupport, isDirectMediaUrl, validateHttpUrl } from "../source/url";
+import {
+  describeUrlSupport,
+  isDirectMediaUrl,
+  isSupportedMediaFilename,
+  SUPPORTED_MEDIA_EXTENSIONS,
+  validateHttpUrl
+} from "../source/url";
 
 describe("validateHttpUrl", () => {
   it("accepts http and https", () => {
@@ -37,6 +43,23 @@ describe("isDirectMediaUrl", () => {
   it("rejects pages and unsupported extensions", () => {
     expect(isDirectMediaUrl("https://youtube.com/watch?v=abc")).toBe(false);
     expect(isDirectMediaUrl("https://example.com/notes.pdf")).toBe(false);
+  });
+});
+
+describe("isSupportedMediaFilename", () => {
+  it("accepts every format the backends take", () => {
+    for (const extension of SUPPORTED_MEDIA_EXTENSIONS) {
+      expect(isSupportedMediaFilename(`recording.${extension}`)).toBe(true);
+    }
+  });
+
+  it("ignores casing and paths", () => {
+    expect(isSupportedMediaFilename("Lecture Part 2.MKV")).toBe(true);
+  });
+
+  it("rejects everything else", () => {
+    expect(isSupportedMediaFilename("notes.txt")).toBe(false);
+    expect(isSupportedMediaFilename("archive")).toBe(false);
   });
 });
 

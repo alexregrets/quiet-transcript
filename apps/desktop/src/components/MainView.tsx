@@ -24,7 +24,7 @@ interface MainViewProps {
   error?: string | undefined;
   demoMode: boolean;
   onUrlChange: (value: string) => void;
-  onFileSelect: (file: File) => void;
+  onPickFile: () => void;
   onUrlSubmit: () => void;
   onEmailChange: (value: string) => void;
   onConsentChange: (value: boolean) => void;
@@ -44,7 +44,7 @@ export const MainView = ({
   error,
   demoMode,
   onUrlChange,
-  onFileSelect,
+  onPickFile,
   onUrlSubmit,
   onEmailChange,
   onConsentChange,
@@ -73,7 +73,7 @@ export const MainView = ({
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-[1040px]">
       <div className="mb-10">
         <h2 className="text-[48px] font-semibold leading-none text-app-text">{greeting(t)}</h2>
-        <p className="mt-4 max-w-xl text-base leading-7 text-app-muted">Drop a media file or paste a direct media URL. Quiet Transcript will return clean Markdown.</p>
+        <p className="mt-4 max-w-xl text-base leading-7 text-app-muted">{t.mainSubtitle}</p>
       </div>
 
       {demoMode ? <p className="mb-4 rounded-2xl border border-amber-300/60 bg-amber-100/60 px-4 py-3 text-sm text-amber-900">{t.demoMode}</p> : null}
@@ -90,7 +90,7 @@ export const MainView = ({
           labelEn={t.fileHere}
           labelRu={t.fileHereRu}
           title={t.chooseFile}
-          onFileSelect={onFileSelect}
+          onPickFile={onPickFile}
         />
         <InputCard
           actionLabel={t.startUrl}

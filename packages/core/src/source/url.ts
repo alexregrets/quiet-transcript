@@ -1,4 +1,29 @@
-const DIRECT_MEDIA_EXTENSIONS = new Set(["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "mp4", "mov", "webm", "mkv"]);
+/**
+ * The formats every client accepts. Mirrored by `SUPPORTED_MEDIA_EXTENSIONS` in
+ * `apps/desktop/src-tauri/src/main.rs`; a drop rejected here but accepted there (or the
+ * reverse) is the bug this single list exists to prevent.
+ */
+export const SUPPORTED_MEDIA_EXTENSIONS = [
+  "mp3",
+  "wav",
+  "m4a",
+  "aac",
+  "ogg",
+  "opus",
+  "flac",
+  "mp4",
+  "mov",
+  "webm",
+  "mkv"
+] as const;
+
+const DIRECT_MEDIA_EXTENSIONS = new Set<string>(SUPPORTED_MEDIA_EXTENSIONS);
+
+/** True when the filename ends in a format the transcription backends accept. */
+export const isSupportedMediaFilename = (filename: string) => {
+  const extension = filename.split(".").at(-1)?.toLowerCase();
+  return extension ? DIRECT_MEDIA_EXTENSIONS.has(extension) : false;
+};
 
 export const validateHttpUrl = (value: string) => {
   try {

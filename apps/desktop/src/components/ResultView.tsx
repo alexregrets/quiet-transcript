@@ -28,7 +28,7 @@ export const ResultView = ({ locale, record, copied, onCopy, onDownload, onSave,
         <div className="flex flex-wrap gap-2">
           <button className="inline-flex h-10 items-center gap-2 rounded-full border border-app-border bg-app-panel px-4 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong" type="button" onClick={onCopy}>
             {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-            {copied ? (locale === "ru" ? "Скопировано" : "Copied!") : t.copyMarkdown}
+            {copied ? t.copiedLabel : t.copyMarkdown}
           </button>
           <button className="inline-flex h-10 items-center gap-2 rounded-full border border-app-border bg-app-panel px-4 text-sm font-semibold text-app-text transition hover:bg-app-panel-strong" type="button" onClick={onDownload}>
             <Download className="h-4 w-4" />
@@ -52,19 +52,19 @@ export const ResultView = ({ locale, record, copied, onCopy, onDownload, onSave,
           </div>
           <dl className="space-y-4 text-sm">
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">Source</dt>
+              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">{t.sourceLabel}</dt>
               <dd className="mt-1 break-words font-medium text-app-text">{source}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">Language</dt>
-              <dd className="mt-1 font-medium text-app-text">{record.language ?? "Unknown"}</dd>
+              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">{t.languageLabel}</dt>
+              <dd className="mt-1 font-medium text-app-text">{record.language ?? t.unknownLabel}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">Provider</dt>
+              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">{t.providerLabel}</dt>
               <dd className="mt-1 font-medium text-app-text">{record.provider}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">Created</dt>
+              <dt className="text-xs uppercase tracking-[0.16em] text-app-muted">{t.createdLabel}</dt>
               <dd className="mt-1 font-medium text-app-text">{new Date(record.createdAt).toLocaleString(locale === "ru" ? "ru-RU" : "en-US")}</dd>
             </div>
           </dl>

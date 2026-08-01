@@ -1,16 +1,19 @@
 import { motion } from "framer-motion";
-import type { Locale } from "../lib/i18n";
-import { copy, stepKeys } from "../lib/i18n";
+import type { LogEntry } from "../App";
+import type { Locale, StepKey } from "../lib/i18n";
+import { copy } from "../lib/i18n";
 
 interface ProcessingViewProps {
   locale: Locale;
   activeStep: number;
-  log: string[];
+  steps: readonly StepKey[];
+  log: LogEntry[];
 }
 
-export const ProcessingView = ({ locale, activeStep, log }: ProcessingViewProps) => {
+export const ProcessingView = ({ locale, activeStep, steps, log }: ProcessingViewProps) => {
   const t = copy[locale];
-  const progress = Math.round(((activeStep + 1) / stepKeys.length) * 100);
+  const progress = Math.round(((activeStep + 1) / steps.length) * 100);
+  const currentStep = steps[activeStep];
 
   return (
     <motion.section
@@ -19,8 +22,8 @@ export const ProcessingView = ({ locale, activeStep, log }: ProcessingViewProps)
       className="mx-auto flex w-full max-w-[600px] flex-col items-center gap-6"
     >
       <div className="text-center">
-        <p className="text-xs uppercase tracking-[0.2em] text-app-muted">Processing</p>
-        <h2 className="mt-2 text-3xl font-semibold text-app-text">{t.transcribing}</h2>
+        <p className="text-xs uppercase tracking-[0.2em] text-app-muted">{t.processing}</p>
+        <h2 className="mt-2 text-3xl font-semibold text-app-text">{currentStep ? t[currentStep] : t.transcribing}</h2>
       </div>
 
       <div className="flex h-16 w-full items-end justify-center gap-1">
@@ -39,7 +42,7 @@ export const ProcessingView = ({ locale, activeStep, log }: ProcessingViewProps)
       <p className="text-5xl font-semibold tabular-nums text-app-text">{progress}%</p>
 
       <ol className="w-full space-y-2">
-        {stepKeys.map((key, index) => {
+        {steps.map((key, index) => {
           const isActive = index === activeStep;
           const isDone = index < activeStep;
           return (
@@ -67,9 +70,9 @@ export const ProcessingView = ({ locale, activeStep, log }: ProcessingViewProps)
 
       {log.length > 0 && (
         <div className="w-full overflow-y-auto rounded-card border border-app-border/60 px-3 py-2" style={{ maxHeight: "4.5rem" }}>
-          {log.map((item) => (
-            <p key={item} className="py-0.5 text-xs text-app-muted">
-              {item}
+          {log.map((entry, index) => (
+            <p key={`${entry.time}-${index}`} className="py-0.5 text-xs text-app-muted">
+              {entry.time} · {"stage" in entry ? t[entry.stage] : entry.source}
             </p>
           ))}
         </div>

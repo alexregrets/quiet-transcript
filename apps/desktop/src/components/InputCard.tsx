@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link2, UploadCloud } from "lucide-react";
 
 interface BaseInputCardProps {
@@ -15,7 +15,7 @@ interface FileInputCardProps extends BaseInputCardProps {
   kind: "file";
   disabled: boolean;
   actionLabel: string;
-  onFileSelect: (file: File) => void;
+  onPickFile: () => void;
 }
 
 interface UrlInputCardProps extends BaseInputCardProps {
@@ -38,13 +38,6 @@ export const InputCard = (props: InputCardProps) => {
   );
 
   if (props.kind === "file") {
-    const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) {
-        props.onFileSelect(file);
-      }
-    };
-
     return (
       <motion.section
         className="glass-panel relative min-h-[340px] overflow-hidden rounded-[24px] p-6 transition"
@@ -58,11 +51,17 @@ export const InputCard = (props: InputCardProps) => {
           <p className="text-xs uppercase tracking-[0.18em] text-app-muted">{props.eyebrow}</p>
           <h2 className="mt-2 max-w-sm text-2xl font-semibold text-app-text">{props.title}</h2>
           <p className="mt-2 max-w-sm text-sm leading-6 text-app-muted">{props.description}</p>
-          <label className="mt-6 inline-flex h-11 w-fit cursor-pointer items-center justify-center gap-2 rounded-full bg-app-text px-5 text-sm font-semibold text-app-bg shadow-soft transition hover:opacity-90">
+          {/* The native picker hands Rust a path; a browser file input would force the
+              bytes through the IPC bridge as a JSON array. */}
+          <button
+            className="mt-6 inline-flex h-11 w-fit items-center justify-center gap-2 rounded-full bg-app-text px-5 text-sm font-semibold text-app-bg shadow-soft transition hover:opacity-90 disabled:opacity-50"
+            disabled={props.disabled}
+            type="button"
+            onClick={props.onPickFile}
+          >
             <UploadCloud className="h-4 w-4" />
             {props.actionLabel}
-            <input accept="audio/*,video/*" className="hidden" disabled={props.disabled} type="file" onChange={handleFile} />
-          </label>
+          </button>
         </div>
       </motion.section>
     );

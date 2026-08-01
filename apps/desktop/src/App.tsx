@@ -1,14 +1,24 @@
-import { buildMarkdown, describeUrlSupport, fromHistoryRow, markdownFilename, titleFromSource, toHistoryInsert, type HistoryRecord, type SupabaseHistoryRow } from "@transcriber/core";
+import {
+  buildMarkdown,
+  describeUrlSupport,
+  fromHistoryRow,
+  isSupportedMediaFilename,
+  markdownFilename,
+  titleFromSource,
+  toHistoryInsert,
+  type HistoryRecord,
+  type SupabaseHistoryRow
+} from "@transcriber/core";
 import type { User } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { downloadDir } from "@tauri-apps/api/path";
+import { downloadDir, join } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { Minimize2, Settings } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { MainView } from "./components/MainView";
 import { MiniView } from "./components/MiniView";
@@ -18,8 +28,16 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { ThemeToggle, type AppTheme } from "./components/ThemeToggle";
 import { loadGladiaKey } from "./lib/apiKey";
-import { getEnvHealthCheck, getPendingAuthDeepLinks, transcribeFileOnDesktop, transcribeFilePathOnDesktop, transcribeUrlOnDesktop } from "./lib/desktopBridge";
-import { copy, type Locale, stepKeys } from "./lib/i18n";
+import {
+  getEnvHealthCheck,
+  getPendingAuthDeepLinks,
+  listenToTranscriptionProgress,
+  pickMediaFile,
+  transcribeFilePathOnDesktop,
+  transcribeUrlOnDesktop
+} from "./lib/desktopBridge";
+import { describeError } from "./lib/errors";
+import { copy, stepKeys, type Locale, type StepKey } from "./lib/i18n";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
 
 const HISTORY_STORAGE_KEY = "quiet-transcript-history";
@@ -28,18 +46,16 @@ const MINI_MODE_STORAGE_KEY = "quiet-transcript-mini-mode";
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 const appThemes = new Set<AppTheme>(["light", "dark", "blue", "sepia"]);
 const AUTH_REDIRECT_URL = "quiet-transcript://auth";
-const supportedDropExtensions = new Set(["mp3", "wav", "m4a", "mp4", "mov", "webm", "ogg"]);
 
 interface AuthDeepLinkPayload {
   url: string;
 }
 
+export type LogEntry = { time: string; stage: StepKey } | { time: string; source: string };
+
 const filenameFromPath = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 
-const isSupportedDropPath = (path: string) => {
-  const extension = filenameFromPath(path).split(".").at(-1)?.toLowerCase();
-  return extension ? supportedDropExtensions.has(extension) : false;
-};
+const now = () => new Date().toLocaleTimeString();
 
 const loadLocalHistory = () => {
   try {
@@ -74,6 +90,8 @@ const createDemoRecord = (source: HistoryRecord["source"]): HistoryRecord => {
   };
 };
 
+const recordKey = (record: HistoryRecord) => record.id ?? record.createdAt;
+
 export const App = () => {
   const [locale, setLocale] = useState<Locale>("ru");
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -89,23 +107,24 @@ export const App = () => {
   const [history, setHistory] = useState<HistoryRecord[]>(() => loadLocalHistory());
   const [selected, setSelected] = useState<HistoryRecord | null>(history[0] ?? null);
   const [processing, setProcessing] = useState(false);
-  const [activeStep, setActiveStep] = useState(0);
-  const [log, setLog] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
+  const [steps, setSteps] = useState<StepKey[]>([...stepKeys]);
+  const [stage, setStage] = useState<StepKey>("uploading");
+  const [log, setLog] = useState<LogEntry[]>([]);
+  // Kept as a raw value rather than a rendered string, so switching language also
+  // re-translates the error already on screen.
+  const [error, setError] = useState<unknown>();
+  const [notice, setNotice] = useState<string>();
   const [isWindowDragOver, setIsWindowDragOver] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isMiniMode, setIsMiniMode] = useState(() => localStorage.getItem(MINI_MODE_STORAGE_KEY) === "true");
   const [showSettings, setShowSettings] = useState(false);
   const [gladiaKey, setGladiaKey] = useState(() => loadGladiaKey());
   const [envKeyPresent, setEnvKeyPresent] = useState(false);
-  const processingRef = useRef(false);
-  // The drag-drop listener is registered once and closes over the first render, so
-  // the key check has to be read through a ref to stay current.
-  const needsApiKeyRef = useRef(false);
   const t = copy[locale];
 
-  const selectedId = selected?.id ?? selected?.createdAt;
-  const stepLabels = useMemo(() => stepKeys.map((key) => t[key]), [t]);
+  const selectedId = selected ? recordKey(selected) : undefined;
+  const activeStep = Math.max(steps.indexOf(stage), 0);
+  const errorMessage = error === undefined ? undefined : describeError(error, locale);
   // Production builds ship no .env, so without a saved key there is nothing to transcribe with.
   const needsApiKey = !DEMO_MODE && !gladiaKey && !envKeyPresent;
 
@@ -168,55 +187,57 @@ export const App = () => {
         }
 
         const records = ((data ?? []) as SupabaseHistoryRow[]).map(fromHistoryRow);
-        setHistory(records);
-        setSelected(records[0] ?? null);
+        // Local transcripts stay visible after signing in; cloud copies win on id.
+        const cloudIds = new Set(records.map(recordKey));
+        const localOnly = loadLocalHistory().filter((record) => !cloudIds.has(recordKey(record)));
+        const merged = [...records, ...localOnly].sort((left, right) =>
+          right.createdAt.localeCompare(left.createdAt)
+        );
+
+        setHistory(merged);
+        setSelected(merged[0] ?? null);
       });
   }, [accountlessMode, user]);
 
   useEffect(() => {
-    if (!user || accountlessMode) {
-      saveLocalHistory(history.filter((record) => record.storage !== "cloud"));
-    }
-  }, [accountlessMode, history, user]);
+    saveLocalHistory(history.filter((record) => record.storage !== "cloud"));
+  }, [history]);
+
+  // Real stage updates from Rust replace what used to be a timer guessing progress.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    void listenToTranscriptionProgress((nextStage) => {
+      setStage(nextStage);
+      setLog((current) => [...current, { time: now(), stage: nextStage }].slice(-8));
+    })
+      .then((dispose) => {
+        if (isMounted) {
+          unlisten = dispose;
+        } else {
+          dispose();
+        }
+      })
+      .catch((cause) => console.warn("Failed to listen for transcription progress.", cause));
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
-    processingRef.current = processing;
-  }, [processing]);
-
-  useEffect(() => {
-    needsApiKeyRef.current = needsApiKey;
-  }, [needsApiKey]);
-
-  useEffect(() => {
-    if (!processing) {
+    if (!notice) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      setActiveStep((current) => Math.min(current + 1, stepKeys.length - 2));
-    }, 1800);
-
-    return () => window.clearInterval(timer);
-  }, [processing]);
-
-  useEffect(() => {
-    if (!processing) {
-      return;
-    }
-
-    const label = stepLabels[activeStep];
-    if (!label) {
-      return;
-    }
-
-    setLog((current) => {
-      const next = `${new Date().toLocaleTimeString()} · ${label}`;
-      return current.at(-1)?.endsWith(label) ? current : [...current, next].slice(-8);
-    });
-  }, [activeStep, processing, stepLabels]);
+    const timer = window.setTimeout(() => setNotice(undefined), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const addRecord = (record: HistoryRecord) => {
-    setHistory((current) => [record, ...current.filter((item) => (item.id ?? item.createdAt) !== (record.id ?? record.createdAt))]);
+    setHistory((current) => [record, ...current.filter((item) => recordKey(item) !== recordKey(record))]);
     setSelected(record);
   };
 
@@ -250,11 +271,14 @@ export const App = () => {
     return fromHistoryRow(data as SupabaseHistoryRow);
   };
 
-  const startLog = (label: string) => {
+  const startLog = (label: string, needsExtraction: boolean) => {
+    const nextSteps = needsExtraction ? [...stepKeys] : stepKeys.filter((key) => key !== "extracting");
+
     setError(undefined);
     setProcessing(true);
-    setActiveStep(0);
-    setLog([`${new Date().toLocaleTimeString()} · ${label}`]);
+    setSteps(nextSteps);
+    setStage(nextSteps[0] ?? "uploading");
+    setLog([{ time: now(), source: label }]);
   };
 
   const finishWithPayload = async (payload: { result: Omit<HistoryRecord, "status" | "markdown">; markdown: string }) => {
@@ -265,8 +289,7 @@ export const App = () => {
       storage: user && !accountlessMode ? "cloud" : "local"
     };
     const savedRecord = user && !accountlessMode ? await saveRecordToSupabase(record) : record;
-    setActiveStep(stepKeys.length - 1);
-    setLog((current) => [...current, `${new Date().toLocaleTimeString()} · ${t.done}`]);
+    setStage("done");
     addRecord(savedRecord);
   };
 
@@ -284,73 +307,63 @@ export const App = () => {
   };
 
   /** Sends the user to Settings instead of letting the request fail deep in Rust. */
-  const ensureApiKey = () => {
-    if (!needsApiKeyRef.current) {
+  const ensureApiKey = useCallback(() => {
+    if (!needsApiKey) {
       return true;
     }
 
-    setError(t.noKeyWarning);
+    setError({ code: "no_api_key" });
     setShowSettings(true);
     return false;
-  };
+  }, [needsApiKey]);
 
-  const runFile = async (file: File) => {
+  const runFilePath = useCallback(
+    async (path: string) => {
+      if (!ensureApiKey()) {
+        return;
+      }
+
+      const filename = filenameFromPath(path);
+      startLog(filename, false);
+
+      try {
+        if (DEMO_MODE) {
+          const record = createDemoRecord({ kind: "file", filename, sizeBytes: 0 });
+          await finishWithPayload({ result: record, markdown: record.markdown });
+          return;
+        }
+
+        const payload = await transcribeFilePathOnDesktop(path);
+        await finishWithPayload(payload);
+      } catch (cause) {
+        setError(cause);
+      } finally {
+        setProcessing(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ensureApiKey, accountlessMode, marketingConsent, user]
+  );
+
+  const pickFile = async () => {
     if (!ensureApiKey()) {
       return;
     }
 
-    startLog(file.name);
-
     try {
-      if (DEMO_MODE) {
-        const record = createDemoRecord({ kind: "file", filename: file.name, mimeType: file.type, sizeBytes: file.size });
-        await finishWithPayload({
-          result: record,
-          markdown: record.markdown
-        });
-        return;
+      const path = await pickMediaFile();
+      if (path) {
+        await runFilePath(path);
       }
-
-      const payload = await transcribeFileOnDesktop(file);
-      await finishWithPayload(payload);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const runFilePath = async (path: string) => {
-    if (!ensureApiKey()) {
-      return;
-    }
-
-    const filename = filenameFromPath(path);
-    startLog(filename);
-
-    try {
-      if (DEMO_MODE) {
-        const record = createDemoRecord({ kind: "file", filename, sizeBytes: 0 });
-        await finishWithPayload({
-          result: record,
-          markdown: record.markdown
-        });
-        return;
-      }
-
-      const payload = await transcribeFilePathOnDesktop(path);
-      await finishWithPayload(payload);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setProcessing(false);
+      setError(cause);
     }
   };
 
   const runUrl = async () => {
     const support = describeUrlSupport(url);
     if (support === "invalid") {
-      setError("Enter a valid http or https URL.");
+      setError({ code: "invalid_url" });
       return;
     }
 
@@ -358,9 +371,7 @@ export const App = () => {
       return;
     }
 
-    // "extractor-required" URLs are handled by yt-dlp on the Rust side
-
-    startLog(url);
+    startLog(url, support === "extractor-required");
 
     try {
       if (DEMO_MODE) {
@@ -372,7 +383,7 @@ export const App = () => {
       const payload = await transcribeUrlOnDesktop(url);
       await finishWithPayload(payload);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause);
     } finally {
       setProcessing(false);
     }
@@ -380,7 +391,7 @@ export const App = () => {
 
   const signIn = async () => {
     if (!supabase) {
-      setAuthMessage("Add Supabase URL and anon key to enable email login.");
+      setAuthMessage(t.authSupabaseMissing);
       return;
     }
 
@@ -394,8 +405,16 @@ export const App = () => {
       }
     });
 
-    setAuthMessage(signInError ? signInError.message : "Check your email for the magic link.");
+    setAuthMessage(signInError ? signInError.message : t.authCheckEmail);
   };
+
+  // The listener is registered once, so it must reach the current handlers through a ref.
+  // Reading them from the closure would pin them to the first render — which is how
+  // dropped files used to skip cloud history entirely.
+  const dropHandlersRef = useRef({ runFilePath, processing });
+  useEffect(() => {
+    dropHandlersRef.current = { runFilePath, processing };
+  }, [processing, runFilePath]);
 
   useEffect(() => {
     let isMounted = true;
@@ -407,24 +426,25 @@ export const App = () => {
           if (event.payload.type === "drop") {
             setIsWindowDragOver(false);
 
-            if (processingRef.current) {
+            if (dropHandlersRef.current.processing) {
               return;
             }
 
-            const paths = event.payload.paths;
-            const firstSupportedPath = paths.find(isSupportedDropPath);
+            const firstSupportedPath = event.payload.paths.find((path) =>
+              isSupportedMediaFilename(filenameFromPath(path))
+            );
 
             if (!firstSupportedPath) {
-              setError("Please drop an MP3, WAV, M4A, MP4, MOV, WEBM, or OGG file.");
+              setError({ code: "unsupported_extension" });
               return;
             }
 
-            void runFilePath(firstSupportedPath);
+            void dropHandlersRef.current.runFilePath(firstSupportedPath);
             return;
           }
 
           if (event.payload.type === "enter" || event.payload.type === "over") {
-            if (!processingRef.current) {
+            if (!dropHandlersRef.current.processing) {
               setIsWindowDragOver(true);
             }
             return;
@@ -478,19 +498,19 @@ export const App = () => {
             access_token: accessToken,
             refresh_token: refreshToken
           });
-          setAuthMessage(sessionError ? sessionError.message : "Signed in.");
+          setAuthMessage(sessionError ? sessionError.message : copy[locale].authSignedIn);
           return;
         }
 
         if (code) {
           const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(code);
-          setAuthMessage(exchangeError ? exchangeError.message : "Signed in.");
+          setAuthMessage(exchangeError ? exchangeError.message : copy[locale].authSignedIn);
           return;
         }
 
-        setAuthMessage("Auth link did not include a Supabase session token.");
+        setAuthMessage(copy[locale].authNoToken);
       } catch (cause) {
-        setAuthMessage(cause instanceof Error ? cause.message : "Could not complete email login.");
+        setAuthMessage(cause instanceof Error ? cause.message : copy[locale].authFailed);
       }
     };
 
@@ -521,6 +541,7 @@ export const App = () => {
       isMounted = false;
       unlistenAuth?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signOut = async () => {
@@ -538,18 +559,37 @@ export const App = () => {
     }
 
     if (selected.storage === "cloud") {
-      setAuthMessage("Saved.");
+      setNotice(t.saved);
       return;
     }
 
     if (!supabase || !user) {
-      setAuthMessage("Sign in with Supabase before saving cloud history.");
+      setAuthMessage(t.saveNeedsAccount);
       return;
     }
 
     const savedRecord = await saveRecordToSupabase(selected);
     addRecord(savedRecord);
-    setAuthMessage(savedRecord.storage === "cloud" ? "Saved." : "Could not save cloud history.");
+    setNotice(savedRecord.storage === "cloud" ? t.saved : t.saveFailed);
+  };
+
+  const deleteRecord = async (record: HistoryRecord) => {
+    if (record.storage === "cloud" && supabase && record.id) {
+      const { error: deleteError } = await supabase.from("transcriptions").delete().eq("id", record.id);
+
+      if (deleteError) {
+        setAuthMessage(deleteError.message);
+        return;
+      }
+    }
+
+    setHistory((current) => {
+      const next = current.filter((item) => recordKey(item) !== recordKey(record));
+      setSelected((currentSelection) =>
+        currentSelection && recordKey(currentSelection) === recordKey(record) ? next[0] ?? null : currentSelection
+      );
+      return next;
+    });
   };
 
   // Uses the Tauri plugin rather than navigator.clipboard, which is unreliable in WebView2.
@@ -561,7 +601,7 @@ export const App = () => {
     try {
       await writeText(selected.markdown);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause);
       return;
     }
 
@@ -570,10 +610,18 @@ export const App = () => {
   };
 
   const downloadMarkdown = async () => {
-    if (!selected) return;
-    const dir = await downloadDir();
-    const filename = markdownFilename(selected.title);
-    await writeTextFile(`${dir}\\${filename}`, selected.markdown);
+    if (!selected) {
+      return;
+    }
+
+    try {
+      const directory = await downloadDir();
+      const target = await join(directory, markdownFilename(selected.title));
+      await writeTextFile(target, selected.markdown);
+      setNotice(`${t.downloadedTo} ${target}`);
+    } catch (cause) {
+      setError(cause);
+    }
   };
 
   const toggleMiniMode = async () => {
@@ -586,6 +634,12 @@ export const App = () => {
     } catch { /* best-effort resize */ }
   };
 
+  const noticeBanner = notice ? (
+    <div className="fixed bottom-5 right-5 z-50 max-w-md rounded-2xl border border-app-border/70 bg-app-panel-strong px-4 py-3 text-xs text-app-text shadow-lift">
+      {notice}
+    </div>
+  ) : null;
+
   if (!user && !accountlessMode) {
     return (
       <div className="min-h-screen bg-[#f0ede8] text-stone-950">
@@ -596,7 +650,7 @@ export const App = () => {
           demoMode={DEMO_MODE}
           disabled={processing}
           email={email}
-          error={error}
+          error={errorMessage}
           locale={locale}
           showAuth
           url={url}
@@ -604,7 +658,7 @@ export const App = () => {
           onConsentChange={setMarketingConsent}
           onEmailChange={setEmail}
           onContinueWithoutAccount={continueWithoutAccount}
-          onFileSelect={(file) => void runFile(file)}
+          onPickFile={() => void pickFile()}
           onUrlChange={setUrl}
           onUrlSubmit={() => void runUrl()}
         />
@@ -613,7 +667,6 @@ export const App = () => {
   }
 
   if (isMiniMode) {
-    // Without this the mini window would have no way to reach Settings when a key is missing.
     if (showSettings) {
       return (
         <div className="app-surface min-h-screen overflow-y-auto p-4 text-app-text">
@@ -623,24 +676,29 @@ export const App = () => {
     }
 
     return (
-      <MiniView
-        locale={locale}
-        url={url}
-        disabled={processing}
-        processing={processing}
-        error={error}
-        selected={selected}
-        copied={copied}
-        log={log}
-        onUrlChange={setUrl}
-        onUrlSubmit={() => void runUrl()}
-        onFileSelect={(file) => void runFile(file)}
-        onCopy={() => void copyMarkdown()}
-        onDownload={() => void downloadMarkdown()}
-        onSave={() => void saveToSupabase()}
-        onNew={startNewTranscript}
-        onExpand={() => void toggleMiniMode()}
-      />
+      <>
+        <MiniView
+          locale={locale}
+          url={url}
+          disabled={processing}
+          processing={processing}
+          error={errorMessage}
+          selected={selected}
+          copied={copied}
+          log={log}
+          needsApiKey={needsApiKey}
+          onUrlChange={setUrl}
+          onUrlSubmit={() => void runUrl()}
+          onPickFile={() => void pickFile()}
+          onCopy={() => void copyMarkdown()}
+          onDownload={() => void downloadMarkdown()}
+          onSave={() => void saveToSupabase()}
+          onNew={startNewTranscript}
+          onExpand={() => void toggleMiniMode()}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        {noticeBanner}
+      </>
     );
   }
 
@@ -648,9 +706,10 @@ export const App = () => {
     <div className="app-surface flex min-h-screen text-app-text">
       {isWindowDragOver ? (
         <div className="pointer-events-none fixed inset-4 z-50 grid place-items-center rounded-[32px] border border-app-accent/70 bg-app-panel/80 text-lg font-semibold text-app-text shadow-lift backdrop-blur-xl">
-          Drop audio or video file
+          {t.dropOverlay}
         </div>
       ) : null}
+      {noticeBanner}
       <Sidebar
         history={history}
         locale={locale}
@@ -659,6 +718,7 @@ export const App = () => {
         isAccountlessMode={accountlessMode}
         onNew={startNewTranscript}
         onSelect={setSelected}
+        onDelete={(record) => void deleteRecord(record)}
         onSignOut={signOut}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">
@@ -703,7 +763,7 @@ export const App = () => {
                 onKeyChange={setGladiaKey}
               />
             ) : processing ? (
-              <ProcessingView activeStep={activeStep} locale={locale} log={log} />
+              <ProcessingView activeStep={activeStep} locale={locale} log={log} steps={steps} />
             ) : selected ? (
               <ResultView
                 locale={locale}
@@ -722,7 +782,7 @@ export const App = () => {
                 demoMode={DEMO_MODE}
                 disabled={processing}
                 email={email}
-                error={error}
+                error={errorMessage}
                 locale={locale}
                 showAuth={false}
                 url={url}
@@ -730,7 +790,7 @@ export const App = () => {
                 onConsentChange={setMarketingConsent}
                 onEmailChange={setEmail}
                 onContinueWithoutAccount={continueWithoutAccount}
-                onFileSelect={(file) => void runFile(file)}
+                onPickFile={() => void pickFile()}
                 onUrlChange={setUrl}
                 onUrlSubmit={() => void runUrl()}
               />

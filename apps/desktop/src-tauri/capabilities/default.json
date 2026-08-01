@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
+    "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-write-text-file",
     "fs:scope-home-recursive",

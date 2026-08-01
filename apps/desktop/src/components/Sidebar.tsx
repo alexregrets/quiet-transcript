@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import type { HistoryRecord } from "@transcriber/core";
-import { ChevronLeft, ChevronRight, Cloud, FileText, LogOut, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cloud, FileText, LogOut, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
@@ -13,10 +13,11 @@ interface SidebarProps {
   isAccountlessMode: boolean;
   onNew: () => void;
   onSelect: (record: HistoryRecord) => void;
+  onDelete: (record: HistoryRecord) => void;
   onSignOut: () => Promise<void>;
 }
 
-export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, onNew, onSelect, onSignOut }: SidebarProps) => {
+export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, onNew, onSelect, onDelete, onSignOut }: SidebarProps) => {
   const t = copy[locale];
   const [collapsed, setCollapsed] = useState(false);
   const today = new Date().toDateString();
@@ -45,27 +46,35 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
     }
 
     return (
-      <button
+      <div
         key={id}
-        className={`w-full rounded-xl px-3 py-2.5 text-left transition ${
+        className={`group relative rounded-xl transition ${
           selectedId === id
             ? "bg-app-panel-strong text-app-text shadow-soft"
             : "text-app-muted hover:bg-app-panel-strong/50 hover:text-app-text"
         }`}
-        type="button"
-        onClick={() => onSelect(record)}
       >
-        <span className="flex items-start gap-2.5">
-          <FileText className="mt-0.5 h-4 w-4 shrink-0" />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{record.title}</span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-xs text-app-muted/70">
-              {record.storage === "cloud" ? <Cloud className="h-3 w-3" /> : null}
-              <span>{new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")}</span>
+        <button className="w-full px-3 py-2.5 text-left" type="button" onClick={() => onSelect(record)}>
+          <span className="flex items-start gap-2.5">
+            <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0">
+              <span className="block truncate pr-6 text-sm font-medium">{record.title}</span>
+              <span className="mt-0.5 flex items-center gap-1.5 text-xs text-app-muted/70">
+                {record.storage === "cloud" ? <Cloud className="h-3 w-3" /> : null}
+                <span>{new Date(record.createdAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")}</span>
+              </span>
             </span>
           </span>
-        </span>
-      </button>
+        </button>
+        <button
+          className="absolute right-2 top-2.5 hidden rounded-lg p-1 text-app-muted transition hover:text-red-500 group-hover:block"
+          title={t.deleteRecord}
+          type="button"
+          onClick={() => onDelete(record)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
     );
   };
 
@@ -97,7 +106,7 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
         {!collapsed && (
           <div className="mb-3 px-1">
             <p className="text-sm font-semibold text-app-text">{t.appName}</p>
-            <p className="text-xs text-app-muted/70">History</p>
+            <p className="text-xs text-app-muted/70">{t.historyLabel}</p>
           </div>
         )}
 
@@ -115,8 +124,8 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
       <div className={`flex-1 space-y-4 overflow-y-auto ${collapsed ? "px-2" : "px-3"}`}>
         {history.length ? (
           <>
-            {renderGroup("TODAY", todayRecords)}
-            {renderGroup("EARLIER", earlierRecords)}
+            {renderGroup(t.historyToday, todayRecords)}
+            {renderGroup(t.historyEarlier, earlierRecords)}
           </>
         ) : !collapsed ? (
           <p className="rounded-xl border border-dashed border-app-border/80 p-4 text-sm leading-6 text-app-muted">{t.emptyHistory}</p>
@@ -125,8 +134,8 @@ export const Sidebar = ({ locale, history, selectedId, user, isAccountlessMode, 
 
       {!collapsed && (
         <div className={`m-3 rounded-xl border border-app-border/70 bg-app-panel-strong/46 p-3`}>
-          <p className="truncate text-sm font-semibold text-app-text">{isAccountlessMode ? "Demo mode" : user?.email ?? t.authTitle}</p>
-          <p className="mt-0.5 text-xs text-app-muted/70">{isAccountlessMode ? "Local session" : user ? t.signedIn : "Supabase magic link"}</p>
+          <p className="truncate text-sm font-semibold text-app-text">{isAccountlessMode ? t.demoSession : user?.email ?? t.authTitle}</p>
+          <p className="mt-0.5 text-xs text-app-muted/70">{isAccountlessMode ? t.localSession : user ? t.signedIn : t.magicLinkHint}</p>
           {user ? (
             <button className="mt-2.5 inline-flex items-center gap-2 text-xs font-semibold text-app-muted hover:text-app-text" type="button" onClick={() => void onSignOut()}>
               <LogOut className="h-3.5 w-3.5" />

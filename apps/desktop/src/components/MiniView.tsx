@@ -1,6 +1,7 @@
-import { Check, Copy, Download, Maximize2, Wand2 } from "lucide-react";
-import { useRef } from "react";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
+import { Check, Copy, Download, Maximize2, Settings, Wand2 } from "lucide-react";
 import type { HistoryRecord } from "@transcriber/core";
+import type { LogEntry } from "../App";
 import type { Locale } from "../lib/i18n";
 import { copy } from "../lib/i18n";
 
@@ -12,27 +13,31 @@ interface MiniViewProps {
   error?: string | undefined;
   selected: HistoryRecord | null;
   copied: boolean;
-  log: string[];
+  log: LogEntry[];
+  needsApiKey: boolean;
   onUrlChange: (value: string) => void;
   onUrlSubmit: () => void;
-  onFileSelect: (file: File) => void;
+  onPickFile: () => void;
   onCopy: () => void;
   onDownload: () => void;
   onSave: () => void;
   onNew: () => void;
   onExpand: () => void;
+  onOpenSettings: () => void;
 }
 
 export const MiniView = ({
-  locale, url, disabled, processing, error, selected, copied, log,
-  onUrlChange, onUrlSubmit, onFileSelect, onCopy, onDownload, onSave, onNew, onExpand
+  locale, url, disabled, processing, error, selected, copied, log, needsApiKey,
+  onUrlChange, onUrlSubmit, onPickFile, onCopy, onDownload, onSave, onNew, onExpand, onOpenSettings
 }: MiniViewProps) => {
   const t = copy[locale];
-  const fileRef = useRef<HTMLInputElement>(null);
+  const lastEntry = log.at(-1);
 
+  // Uses the Tauri plugin: navigator.clipboard.readText is blocked in WebView2, so the
+  // button used to do nothing at all.
   const paste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       onUrlChange(text.trim());
     } catch { /* clipboard read failed */ }
   };
@@ -45,20 +50,32 @@ export const MiniView = ({
           <div className="grid h-7 w-7 place-items-center rounded-lg bg-app-text text-app-bg text-xs font-bold">T</div>
           <span className="text-xs font-semibold text-app-text">Transcribe.md</span>
         </div>
-        <button
-          onClick={onExpand}
-          className="rounded-lg border border-app-border/60 bg-app-panel p-1.5 text-app-muted transition hover:text-app-text"
-          title={t.expand}
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onOpenSettings}
+            className="relative rounded-lg border border-app-border/60 bg-app-panel p-1.5 text-app-muted transition hover:text-app-text"
+            title={t.settings}
+          >
+            <Settings className="h-3.5 w-3.5" />
+            {needsApiKey ? (
+              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />
+            ) : null}
+          </button>
+          <button
+            onClick={onExpand}
+            className="rounded-lg border border-app-border/60 bg-app-panel p-1.5 text-app-muted transition hover:text-app-text"
+            title={t.expand}
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* URL input + paste */}
       <div className="flex gap-1.5">
         <input
           className="quiet-input min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
-          placeholder="YouTube, TikTok, VK…"
+          placeholder={t.miniUrlPlaceholder}
           value={url}
           disabled={disabled}
           onChange={(e) => onUrlChange(e.target.value)}
@@ -67,29 +84,21 @@ export const MiniView = ({
         <button
           onClick={() => void paste()}
           className="rounded-xl border border-app-border/60 bg-app-panel px-3 py-2 text-xs font-medium text-app-muted transition hover:text-app-text"
-          title="Paste"
+          title={t.pasteLabel}
         >
-          Paste
+          {t.pasteLabel}
         </button>
       </div>
 
       {/* File drop zone */}
       <button
         type="button"
-        onClick={() => fileRef.current?.click()}
+        onClick={onPickFile}
         disabled={disabled}
         className="flex h-20 w-full items-center justify-center rounded-xl border-2 border-dashed border-app-border/70 bg-app-panel/60 text-sm text-app-muted transition hover:border-app-text/40 hover:text-app-text disabled:opacity-50"
       >
         {t.dropOrClick}
       </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="audio/*,video/*"
-        className="hidden"
-        disabled={disabled}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelect(f); }}
-      />
 
       {/* Transcribe button */}
       <button
@@ -109,7 +118,9 @@ export const MiniView = ({
 
       {/* Processing log */}
       {processing && (
-        <p className="text-center text-xs text-app-muted">{log.at(-1) ?? "…"}</p>
+        <p className="text-center text-xs text-app-muted">
+          {lastEntry ? ("stage" in lastEntry ? t[lastEntry.stage] : lastEntry.source) : "…"}
+        </p>
       )}
 
       {/* Result actions */}
@@ -122,7 +133,7 @@ export const MiniView = ({
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-app-border bg-app-panel py-2 text-xs font-semibold text-app-text transition hover:bg-app-panel-strong"
             >
               {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? (locale === "ru" ? "Скопировано" : "Copied!") : t.copyMarkdown}
+              {copied ? t.copiedLabel : t.copyMarkdown}
             </button>
             <button
               type="button"
