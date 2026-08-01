@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typescript:
+    name: Typecheck and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - name: Run tests
+        # Only core and bot have real tests; the other workspaces print a placeholder.
+        run: pnpm test
+
+  rust:
+    name: Rust unit tests
+    # The desktop backend is Windows-only (it bundles yt-dlp.exe), so it is checked here.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the frontend
+        # tauri::generate_context! reads the built frontend at compile time.
+        run: pnpm --filter @transcriber/desktop build
+
+      - name: Fetch bundled yt-dlp
+        # The binary is gitignored but declared in tauri.conf.json bundle resources.
+        run: pnpm --filter @transcriber/desktop fetch:ytdlp
+
+      - name: cargo test
+        working-directory: apps/desktop/src-tauri
+        run: cargo test
+
+      - name: cargo clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings

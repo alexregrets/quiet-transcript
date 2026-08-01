@@ -464,13 +464,7 @@ fn choose_env_path(candidates: &[PathBuf]) -> Option<PathBuf> {
                 .is_some_and(|parent| parent.join("pnpm-workspace.yaml").is_file())
         })
         .cloned()
-        .or_else(|| {
-            candidates
-                .iter()
-                .filter(|path| path.is_file())
-                .last()
-                .cloned()
-        })
+        .or_else(|| candidates.iter().rfind(|path| path.is_file()).cloned())
 }
 
 fn env_report_to_health_check(report: &EnvLoadReport) -> EnvHealthCheck {
@@ -483,8 +477,8 @@ fn env_report_to_health_check(report: &EnvLoadReport) -> EnvHealthCheck {
     }
 }
 
-fn path_to_string(path: &PathBuf) -> String {
-    path.display().to_string()
+fn path_to_string(path: impl AsRef<Path>) -> String {
+    path.as_ref().display().to_string()
 }
 
 fn validate_filename(filename: &str) -> CommandResult<()> {
@@ -575,7 +569,7 @@ fn is_direct_media_url(value: &str) -> bool {
         .ok()
         .and_then(|url| {
             url.path_segments()
-                .and_then(|segments| segments.last().map(str::to_lowercase))
+                .and_then(|mut segments| segments.next_back().map(str::to_lowercase))
         })
         .map(|last| {
             SUPPORTED_MEDIA_EXTENSIONS
@@ -679,8 +673,7 @@ async fn extract_audio(app: &tauri::AppHandle, url: &str) -> CommandResult<Extra
     let extracted_path = printed
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .next_back()
+        .rfind(|line| !line.is_empty())
         .map(PathBuf::from);
 
     let Some(extracted_path) = extracted_path.filter(|path| path.is_file()) else {
@@ -733,8 +726,7 @@ fn last_line(value: &str) -> String {
     value
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .next_back()
+        .rfind(|line| !line.is_empty())
         .unwrap_or(value)
         .to_string()
 }

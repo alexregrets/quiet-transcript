@@ -23,25 +23,28 @@ Target user: knowledge workers, students, researchers who want transcripts in Ma
 
 ---
 
-## Current Status (June 2026)
+## Current Status (August 2026)
 
 ### Working ✅
 - Desktop app launches, no console window in release build
-- File upload → Gladia → Markdown transcript
+- File → Gladia → Markdown transcript. Files are chosen through the native picker and passed to Rust **by path**; nothing goes through the IPC bridge as bytes
 - Direct media URL → Gladia → Markdown transcript
-- **Social URL extraction** — YouTube, TikTok, VK, Instagram, Rutube via bundled yt-dlp, audio extracted then sent to Gladia
+- **Social URL extraction** — YouTube, TikTok, VK, Instagram, Rutube via bundled yt-dlp. Downloads an existing audio stream rather than re-encoding, so no ffmpeg is required
+- **Real progress** — Rust emits each stage (`uploading → extracting → sending → transcribing → building → done`) and the UI follows it
+- **Survives a flaky connection** — HTTP timeouts everywhere, polling retries transient failures for up to an hour instead of losing the job
+- Localized failures — Rust returns an error code, the UI renders it in EN/RU with the raw technical detail alongside
 - Copy Markdown / Download .md — native clipboard/filesystem calls (browser APIs were unreliable in WebView2)
-- History sidebar (local, grouped TODAY/EARLIER), Supabase sync for logged-in users
+- History sidebar (local, grouped TODAY/EARLIER), Supabase sync for logged-in users, per-record delete (cloud and local), local history merges with cloud on sign-in instead of being replaced
 - 4 themes: Light, Dark, Blue, Sepia
-- Bilingual UI: EN/RU (README/AGENTS mention EN/JA from an earlier pass — RU is what's actually shipped and used)
+- Bilingual UI: EN/RU
 - Demo / accountless mode — visible "Continue without account" button, no env flag needed
 - Email magic link auth via Supabase
 - Deep link: `quiet-transcript://auth` — single-instance plugin ensures this focuses the existing window instead of opening a second one
-- ProcessingView redesigned — single centered column, animated waveform, step list with active/done/pending states, capped scrollable log
-- Drag-and-drop — works in production build (Tauri/WebView2 blocks it in dev mode, this is expected and not worth fixing)
-- Mini compact mode (420×500) — URL input, compact drop zone, transcribe button, Copy/Download actions, no sidebar
+- Drag-and-drop via Tauri's native `onDragDropEvent`, accepting all 11 supported formats
+- Mini compact mode (420×500) — URL input, compact picker, transcribe button, Copy/Download, Settings
 - User-supplied Gladia API key — Settings screen, stored in localStorage, falls back to `.env` `GLADIA_API_KEY` in dev
-- Windows installer builds via `tauri:build`
+- Windows installer builds via `tauri:build` (which fetches yt-dlp first)
+- Tests: 31 in `packages/core`, 29 in `apps/bot`, 16 Rust unit tests. CI runs all of them plus clippy
 
 ### Telegram bot ✅
 - **Bring your own key.** Each user connects their own Gladia key with `/setkey`, so the
@@ -57,13 +60,13 @@ Target user: knowledge workers, students, researchers who want transcripts in Ma
 
 ### Not Working / TODO ❌
 - `apps/web` — stub only (~23 lines), imports `@transcriber/core` but no server-side Gladia route yet
+- `packages/ui` — three primitives, zero consumers. Either wire it up or delete it
 - Additional transcription providers beyond Gladia (OpenAI Whisper, AssemblyAI, Deepgram considered, not built)
 - AI summary after transcription — deliberately deferred, no API budget for Anthropic calls
 - Landing page
 - Onboarding flow for first-time users
-- Broader error handling UX (oversized files, network loss mid-transcription)
-- Telegram Stars monetization — researched, not implemented; needs the bot to actually transcribe first
-- Mini mode and social URL extraction implemented but **not yet tested end-to-end** — verify before shipping
+- No way to cancel a running transcription from the UI
+- Telegram Stars monetization — researched, not implemented
 
 ---
 
@@ -77,10 +80,14 @@ apps/
                        InputCard, AuthScreen, SettingsView, ThemeToggle, LanguageToggle
       lib/          ← desktopBridge.ts (Tauri command wrappers), supabase.ts, i18n.ts
     src-tauri/
-      src/main.rs   ← ~870 lines. Gladia calls, yt-dlp invocation, env loading,
-                       file-path transcription, deep link handler, single-instance plugin
+      src/main.rs   ← Gladia calls, yt-dlp invocation, env loading, file-path
+                       transcription, progress events, typed error codes, deep link
+                       handler, single-instance plugin, unit tests
       tauri.conf.json
       capabilities/default.json
+
+scripts/
+  fetch-ytdlp.ps1   ← downloads the bundled yt-dlp (gitignored, required to build)
 
   web/              ← stub, Phase 2. No Gladia server route yet.
   bot/              ← Telegraf. config/router/extract/pipeline/keystore/messages split
@@ -194,9 +201,11 @@ Note: end users don't need this `.env` — they can enter their own Gladia key i
 ## Run / Build / Typecheck
 
 ```powershell
-pnpm dev:desktop
+pnpm dev:desktop                                       # fetches yt-dlp, then runs Tauri
 pnpm --filter @transcriber/desktop tauri:build
 pnpm typecheck
+pnpm test
+cd apps/desktop/src-tauri; cargo test
 ```
 
 Installer output: `apps/desktop/src-tauri/target/release/bundle/` (`.msi` and `.exe`)
@@ -222,28 +231,25 @@ For social links: yt-dlp extracts audio to a temp file first, then the same flow
 
 ## Known Issues / Gotchas
 
-- **Drag-and-drop shows a forbidden cursor in `pnpm dev:desktop`** — this is a Tauri/WebView2 dev-mode limitation on Windows, not a real bug. It works correctly in the production build. Don't waste time "fixing" dev mode.
+- **Drag-and-drop uses Tauri's native `onDragDropEvent`, never HTML5 handlers.** With `dragDropEnabled: true` the WebView suppresses HTML5 drops on purpose, so an HTML5 dropzone shows a "forbidden" cursor. If the cursor is forbidden in dev, check elevation first: Windows blocks drops from a normal Explorer into an elevated process (UIPI), so a dev server started in an admin terminal will refuse every drop.
+- **ffmpeg is not bundled.** yt-dlp must stay on `-f bestaudio`; `--extract-audio --audio-format` invokes its FFmpeg post-processor and fails on any machine without ffmpeg installed.
+- **`yt-dlp.exe` is gitignored** but declared in `bundle.resources`. `scripts/fetch-ytdlp.ps1` downloads it and both `tauri:dev` and `tauri:build` call it. Re-run with `-Force` when extraction starts failing — social sites change.
 - **PowerShell `.env` encoding** — always `Set-Content -Encoding utf8`, never `echo > .env`.
 - **Browser clipboard/download APIs were unreliable in WebView2** — the app uses native Tauri calls instead. If touching copy/download logic, keep using the native path, don't revert to `navigator.clipboard` / anchor-download tricks.
+- **Never send file bytes through `invoke`** — they serialize as a JSON array of numbers. Pass a path and let Rust read the file.
 - **Magic link previously opened a second window** — fixed via `tauri-plugin-single-instance`; the deep link handler forwards the URL to the first window and calls `set_focus()`. Don't remove this plugin.
-- **README/AGENTS.md may still say EN/JA localization** — that's stale. The shipped languages are EN/RU.
 
 ---
 
 ## Roadmap / Priority Order
 
-1. **Verify** — test mini mode, the Settings key flow, and social URL extraction
-   (YouTube/TikTok/VK/Instagram/Rutube) end-to-end; implemented but not confirmed in practice
-2. **Deploy the bot** — token is set locally; follow `deploy/DEPLOY.md`, then confirm
-   `/setkey` and a real transcription work end-to-end
-3. Confirm `.msi` installer runs cleanly on a fresh Windows machine
-4. Remaining error-handling UX — network loss mid-transcription (oversized and empty
-   files are now rejected with a clear message)
-5. Simple onboarding for first-time users
-6. Landing page
-7. `apps/web` — add server-side Gladia route, connect to `packages/core`
-8. Telegram Stars monetization (researched: works via Telegram Mini App inside the bot)
-9. Additional transcription providers (user choice of Gladia / Whisper / AssemblyAI / Deepgram) — deferred, no immediate need
+1. Confirm the `.msi` installer runs cleanly on a fresh Windows machine
+2. Cancel button for a running transcription
+3. Simple onboarding for first-time users
+4. Landing page
+5. `apps/web` — add server-side Gladia route, connect to `packages/core`
+6. Telegram Stars monetization (researched: works via Telegram Mini App inside the bot)
+7. Additional transcription providers (user choice of Gladia / Whisper / AssemblyAI / Deepgram) — deferred, no immediate need
 
 ---
 

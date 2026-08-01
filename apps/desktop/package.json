@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "fetch:ytdlp": "powershell -ExecutionPolicy Bypass -File ../../scripts/fetch-ytdlp.ps1",
+    "tauri:dev": "pnpm fetch:ytdlp && tauri dev",
+    "tauri:build": "pnpm fetch:ytdlp && tauri build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo \"Desktop tests covered by core MVP tests\"",
     "lint": "tsc -p tsconfig.json --noEmit"

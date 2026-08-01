@@ -50,5 +50,10 @@ create policy "Users can update own transcriptions"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+-- Without this the app can hide a transcript locally but never remove it from the cloud.
+create policy "Users can delete own transcriptions"
+  on public.transcriptions for delete
+  using (auth.uid() = user_id);
+
 create index if not exists transcriptions_user_created_idx
   on public.transcriptions(user_id, created_at desc);
