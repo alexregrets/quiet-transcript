@@ -10,6 +10,12 @@ const execFileAsync = promisify(execFile);
 
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * The server puts yt-dlp on PATH (see deploy/setup-server.sh). On a dev machine it is
+ * usually only the copy bundled with the desktop app, so YTDLP_PATH points at that.
+ */
+const ytdlpBinary = () => process.env.YTDLP_PATH?.trim() || "yt-dlp";
+
 export interface ExtractedAudio {
   filename: string;
   bytes: Buffer;
@@ -32,7 +38,7 @@ export const extractAudio = async (url: string): Promise<ExtractedAudio> => {
 
   try {
     const { stdout } = await execFileAsync(
-      "yt-dlp",
+      ytdlpBinary(),
       [
         "-f",
         "bestaudio[ext=m4a]/bestaudio/best",

@@ -9,7 +9,9 @@ export const messages = {
     start:
       "Send me an audio or video file, a voice message, or a link (YouTube, TikTok, VK, Instagram, Rutube) and I will reply with a Markdown transcript.\n\nFirst, connect your own Gladia API key with /setkey — transcription runs on your key, so you keep your own free quota.",
     help:
-      "Commands:\n/setkey <key> — connect your Gladia API key\n/deletekey — remove your stored key\n\nThen send audio, video, a voice message, or a link. Files up to 20 MB — that is Telegram's limit for bots.",
+      "Commands:\n/setkey <key> — connect your Gladia API key\n/status — check whether a key is connected\n/deletekey — remove your stored key\n\nThen send audio, video, a voice message, or a link. Files up to 20 MB — that is Telegram's limit for bots.",
+    statusReady: (masked: string) => `Key connected (${masked}). Send audio, video, or a link.`,
+    statusMissing: "No key connected yet. Send /setkey your-key to get started.",
     noKey:
       "You need your own Gladia API key first.\n\n1. Get a free one at gladia.io (about 10 hours a month)\n2. Send it here as: /setkey your-key\n\nTranscription runs on your key, so nobody shares a quota.",
     setKeyUsage: "Send the key with the command, like: /setkey your-key-here",
@@ -39,7 +41,9 @@ export const messages = {
     start:
       "Пришлите аудио или видео, голосовое сообщение либо ссылку (YouTube, TikTok, VK, Instagram, Rutube) — я отвечу транскриптом в Markdown.\n\nСначала подключите свой ключ Gladia через /setkey — распознавание идёт на вашем ключе, так что квота остаётся вашей.",
     help:
-      "Команды:\n/setkey <ключ> — подключить ваш ключ Gladia\n/deletekey — удалить сохранённый ключ\n\nДальше присылайте аудио, видео, голосовое или ссылку. Файлы до 20 МБ — это ограничение Telegram для ботов.",
+      "Команды:\n/setkey <ключ> — подключить ваш ключ Gladia\n/status — проверить, подключён ли ключ\n/deletekey — удалить сохранённый ключ\n\nДальше присылайте аудио, видео, голосовое или ссылку. Файлы до 20 МБ — это ограничение Telegram для ботов.",
+    statusReady: (masked: string) => `Ключ подключён (${masked}). Присылайте аудио, видео или ссылку.`,
+    statusMissing: "Ключ пока не подключён. Отправьте /setkey ваш-ключ, чтобы начать.",
     noKey:
       "Сначала нужен ваш собственный ключ Gladia.\n\n1. Получите бесплатный на gladia.io (около 10 часов в месяц)\n2. Пришлите его сюда командой: /setkey ваш-ключ\n\nРаспознавание идёт на вашем ключе, так что общей квоты ни у кого нет.",
     setKeyUsage: "Пришлите ключ вместе с командой, например: /setkey ваш-ключ",

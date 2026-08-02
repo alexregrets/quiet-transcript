@@ -207,6 +207,14 @@ bot.command("setkey", async (ctx) => {
   await ctx.reply(t.deleteMessageHint);
 });
 
+bot.command("status", async (ctx) => {
+  const t = messages[localeOf(ctx)];
+  const key = keystore.get(ctx.from.id);
+
+  // Only the tail is echoed back, so the chat log never carries a usable key.
+  await ctx.reply(key ? t.statusReady(`••••${key.slice(-4)}`) : t.statusMissing);
+});
+
 bot.command("deletekey", async (ctx) => {
   const t = messages[localeOf(ctx)];
   const removed = await keystore.remove(ctx.from.id);
@@ -322,9 +330,34 @@ bot.on(message("text"), async (ctx) => {
   });
 });
 
-void bot.launch(() =>
-  console.log(`Bot started. Keys for ${keystore.size()} user(s) loaded from ${keystorePath}.`)
-);
+/**
+ * Populates the command menu Telegram shows next to the input box. Without it a new user
+ * has to read /help to discover that /setkey exists at all.
+ */
+const publishCommandMenu = async () => {
+  const menu = [
+    { en: "Start", ru: "Начать", command: "start" },
+    { en: "Connect your Gladia API key", ru: "Подключить ключ Gladia", command: "setkey" },
+    { en: "Check whether a key is connected", ru: "Проверить, подключён ли ключ", command: "status" },
+    { en: "Remove your stored key", ru: "Удалить сохранённый ключ", command: "deletekey" },
+    { en: "How this works", ru: "Как это работает", command: "help" }
+  ];
+
+  await bot.telegram.setMyCommands(menu.map(({ command, en }) => ({ command, description: en })));
+  await bot.telegram.setMyCommands(
+    menu.map(({ command, ru }) => ({ command, description: ru })),
+    { language_code: "ru" }
+  );
+};
+
+void bot.launch(async () => {
+  console.log(`Bot started. Keys for ${keystore.size()} user(s) loaded from ${keystorePath}.`);
+
+  // Best effort: a failed menu update must not take the bot down.
+  await publishCommandMenu().catch((cause) =>
+    console.warn("[bot] could not publish the command menu:", cause instanceof Error ? cause.message : cause)
+  );
+});
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
