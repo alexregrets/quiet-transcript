@@ -58,6 +58,10 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 
 log "Fetching the repository"
+# The tree is chowned to the service user at the end of every run, so on the second run
+# git refuses to touch it as root ("dubious ownership") unless it is marked safe.
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
   git -C "$APP_DIR" reset --hard "origin/$BRANCH"
